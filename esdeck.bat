@@ -79,8 +79,8 @@ if errorlevel 1 (
     echo  [X] pip install failed. Scroll up for the reason.
     goto :fail
 )
-echo  [ok] esdeck installed
 set "ESDECK=%PY% -m esdeck"
+for /f "delims=" %%v in ('%ESDECK% --version 2^>nul') do echo  [ok] %%v
 
 rem Reuse an existing setup only if it is actually usable. A config left by an
 rem older version can point at a relative path like "G\ROMs", which made setup

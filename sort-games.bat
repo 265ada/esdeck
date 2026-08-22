@@ -48,6 +48,7 @@ if not defined PY (
 )
 set "ESDECK=%PY% -m esdeck"
 
+for /f "delims=" %%v in ('%ESDECK% --version 2^>nul') do echo  Using %%v
 %ESDECK% check-setup
 if errorlevel 1 (
     echo.

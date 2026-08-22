@@ -38,6 +38,7 @@ from . import launcher, plan as plan_mod
 from . import progress as progress_mod
 from . import scan as scan_mod
 from . import tidy as tidy_mod
+from . import __version__
 from .systems import BY_KEY
 
 DEFAULT_PLAN = "esdeck-plan.json"
@@ -927,6 +928,11 @@ def cmd_doctor(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="esdeck", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    # Worth having: the .bat files are only launchers, so a fresh download does
+    # not by itself update the code they run. This says what is actually installed.
+    ap.add_argument("--version", action="version",
+                    version=f"esdeck {__version__}  (installed at "
+                            f"{Path(__file__).resolve().parent})")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("init", help="configure this machine")
