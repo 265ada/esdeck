@@ -16,9 +16,11 @@ from pathlib import Path
 from . import systems as sysmod
 from . import readme_parse
 from . import sniff
+from . import archives
 
 MAX_DEPTH = 6
-#: Archives we can look inside without an external tool.
+#: Archives we can look inside without an external tool. Everything else needs
+#: 7-Zip, which esdeck installs.
 PEEKABLE_EXTS = (".zip",)
 #: An extension claimed by at most this many systems is decisive enough to use.
 EXT_DECIDES_UP_TO = 3
@@ -81,6 +83,12 @@ def classify(path: Path) -> str:
     ext = path.suffix.lower()
     if sysmod.is_doc(path.name):
         return "doc"
+    # Volume 2..N of a split archive is not a game and not separately openable;
+    # 7-Zip pulls them in from the first volume.
+    if archives.is_later_volume(path):
+        return "support"
+    if archives.is_first_volume(path):
+        return "archive"
     if name in sysmod.INSTALLER_NAMES or (
             ext in sysmod.INSTALLER_EXTS and re.search(r"setup|install", name)):
         return "installer"
@@ -213,14 +221,8 @@ def _resolve_system(item: ScanItem) -> None:
 
 
 def archive_members(path: Path) -> list[str] | None:
-    """Names inside an archive, or None when we cannot open it without 7-Zip."""
-    if path.suffix.lower() not in PEEKABLE_EXTS:
-        return None
-    try:
-        with zipfile.ZipFile(path) as zf:
-            return [n for n in zf.namelist() if not n.endswith("/")]
-    except (OSError, zipfile.BadZipFile):
-        return None
+    """Names inside an archive, or None when it cannot be opened on this machine."""
+    return archives.members(path)
 
 
 def _archive_readme(path: Path, members: list[str]) -> readme_parse.ReadmeHints | None:
@@ -229,10 +231,8 @@ def _archive_readme(path: Path, members: list[str]) -> readme_parse.ReadmeHints 
     if not docs:
         return None
     docs.sort(key=lambda n: (n.count("/"), len(n)))
-    try:
-        with zipfile.ZipFile(path) as zf:
-            raw = zf.read(docs[0])[:readme_parse.MAX_BYTES]
-    except (OSError, zipfile.BadZipFile, KeyError):
+    raw = _read_member(path, docs[0])
+    if raw is None:
         return None
     for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
         try:
@@ -242,12 +242,56 @@ def _archive_readme(path: Path, members: list[str]) -> readme_parse.ReadmeHints 
     return None
 
 
+def _read_member(archive: Path, name: str) -> bytes | None:
+    """One file's bytes out of an archive, without unpacking the whole thing."""
+    if archive.suffix.lower() == ".zip":
+        try:
+            with zipfile.ZipFile(archive) as zf:
+                return zf.read(name)[:readme_parse.MAX_BYTES]
+        except (OSError, zipfile.BadZipFile, KeyError):
+            return None
+    exe = archives.sevenzip()
+    if exe is None:
+        return None
+    import subprocess
+    try:
+        proc = subprocess.run([exe, "e", "-so", str(archive), name, "-y"],
+                              capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout[:readme_parse.MAX_BYTES] if proc.returncode == 0 else None
+
+
+def _split_set_size(first: Path) -> int:
+    """Total bytes across every volume of a split archive."""
+    stem = archives.volume_stem(first).lower()
+    total = 0
+    try:
+        for sibling in first.parent.iterdir():
+            if not sibling.is_file():
+                continue
+            if archives.volume_stem(sibling).lower() != stem:
+                continue
+            if archives.is_first_volume(sibling) or archives.is_later_volume(sibling):
+                total += sibling.stat().st_size
+    except OSError:
+        return first.stat().st_size
+    return total or first.stat().st_size
+
+
 def scan_item(root: Path) -> ScanItem:
     """Build a ScanItem from one folder (or a single file's parent)."""
     if root.is_file():
-        files = [FileInfo(root, root.name, root.stat().st_size, classify(root), root.suffix.lower())]
-        item = ScanItem(root=root.parent, name=clean_title(root.name),
-                        raw_name=root.name, files=files)
+        files = [FileInfo(root, root.name, root.stat().st_size, classify(root),
+                          root.suffix.lower())]
+        name = root.name
+        if archives.is_first_volume(root):
+            # A split set is one game: name it after the shared stem, and count
+            # every volume so the reported size is the real download size.
+            name = archives.volume_stem(root)
+            files[0].size = _split_set_size(root)
+        item = ScanItem(root=root.parent, name=clean_title(name),
+                        raw_name=name, files=files)
     else:
         item = ScanItem(root=root, name=clean_title(root.name),
                         raw_name=root.name, files=_walk(root))
@@ -342,6 +386,8 @@ def scan(source: Path, _depth: int = 0) -> list[ScanItem]:
                 items.extend(scan(entry, _depth + 1))
             else:
                 items.append(scan_item(entry))
+        elif archives.is_later_volume(entry):
+            continue          # part 2+ of a split archive; the first part covers it
         elif classify(entry) in GAME_KINDS:
             items.append(scan_item(entry))
         elif entry.suffix.lower() not in IGNORE_EXTS:

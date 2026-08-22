@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import bios, config, cores, drives, esde, launcher, plan  # noqa: E402
+from esdeck import archives, bios, clean, config, cores, drives, esde  # noqa: E402
+from esdeck import launcher, plan  # noqa: E402
 from esdeck import readme_parse  # noqa: E402
 from esdeck import scan, tidy  # noqa: E402
 from esdeck import sniff  # noqa: E402
@@ -242,16 +243,21 @@ class TestApply(ScanFixture):
                                    log=lambda *a: None)
         self.assertTrue(res.errors and "refusing to write outside" in res.errors[0])
 
-    def test_zip_slip_is_blocked(self):
+    def test_zip_slip_cannot_escape_the_destination(self):
+        """An archive with ../ paths must not write outside the target folder.
+
+        7-Zip strips the traversal itself (verified), and the stdlib fallback
+        raises. Either way the file must stay inside dest.
+        """
         z = self.roms / "bad.zip"
         with zipfile.ZipFile(z, "w") as zf:
             zf.writestr("../../escaped.txt", "pwned")
         dest = self.roms / "out"
         pl = {"actions": [{"type": "extract", "src": str(z), "dst": str(dest)}]}
-        res = apply_mod.apply_plan(pl, dry_run=False, roots=[str(self.roms)],
-                                   log=lambda *a: None)
-        self.assertTrue(res.errors and "unsafe path" in res.errors[0])
+        apply_mod.apply_plan(pl, dry_run=False, roots=[str(self.roms)],
+                             log=lambda *a: None)
         self.assertFalse((Path(self.td.name) / "escaped.txt").exists())
+        self.assertFalse((self.roms / "escaped.txt").exists())
 
     def test_existing_file_not_overwritten_by_default(self):
         touch(self.src / "Zelda (USA).n64")
@@ -829,6 +835,113 @@ class TestDrives(unittest.TestCase):
 
     def test_free_space_is_reported_in_gb(self):
         self.assertAlmostEqual(self._d("D:", 250).free_gb, 250, places=3)
+
+
+class TestArchiveVolumes(unittest.TestCase):
+    """A 47-part set is one game, not 47. Only volume 1 is ever opened."""
+
+    FIRST = ("X.part01.rar", "X.part1.rar", "X.part01", "X.7z.001",
+             "X.zip.001", "X.001", "X.r00")
+    LATER = ("X.part02.rar", "X.part47", "X.7z.002", "X.002", "X.r01")
+
+    def test_first_volumes_recognised(self):
+        for name in self.FIRST:
+            self.assertTrue(archives.is_first_volume(name), name)
+            self.assertFalse(archives.is_later_volume(name), name)
+
+    def test_later_volumes_recognised(self):
+        for name in self.LATER:
+            self.assertTrue(archives.is_later_volume(name), name)
+            self.assertFalse(archives.is_first_volume(name), name)
+
+    def test_plain_archives_are_not_volumes(self):
+        for name in ("Game.zip", "Game.7z", "Game.rar"):
+            self.assertFalse(archives.is_first_volume(name), name)
+            self.assertFalse(archives.is_later_volume(name), name)
+
+    def test_volume_stem_is_shared_across_the_set(self):
+        stems = {archives.volume_stem(n) for n in self.FIRST + self.LATER}
+        self.assertEqual(stems, {"X"})
+
+    def test_every_common_archive_extension_is_known(self):
+        for ext in (".zip", ".7z", ".rar", ".tar", ".gz", ".xz", ".cab", ".lzh"):
+            self.assertIn(ext, archives.ARCHIVE_EXTS)
+
+    def test_zip_is_readable_without_seven_zip(self):
+        self.assertTrue(archives.can_read("Game.zip"))
+
+    def test_split_zip_needs_seven_zip_even_though_it_says_zip(self):
+        """Game.zip.001 is not a zip file on its own."""
+        self.assertEqual(archives.can_read("Game.zip.001"),
+                         archives.sevenzip() is not None)
+
+
+class TestClean(unittest.TestCase):
+    """Deleting someone's game files: verify first, never on a dry run."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.drop = Path(self.td.name) / "Incoming"
+        self.roms = Path(self.td.name) / "ROMs" / "n64"
+        self.drop.mkdir(parents=True)
+        self.roms.mkdir(parents=True)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def _pair(self, name, body=b"identical bytes", other=None):
+        (self.drop / name).write_bytes(body)
+        (self.roms / name).write_bytes(other if other is not None else body)
+
+    def test_identical_copy_is_safe_to_remove(self):
+        self._pair("Zelda.n64")
+        report = clean.survey([self.drop], [self.roms.parent])
+        self.assertEqual(len(report.safe), 1)
+        self.assertEqual(report.reclaimable, len(b"identical bytes"))
+
+    def test_same_name_different_bytes_is_never_removed(self):
+        self._pair("Zelda.n64", b"aaaa", other=b"bbbb")
+        report = clean.survey([self.drop], [self.roms.parent])
+        self.assertEqual(report.safe, [])
+        self.assertEqual(len(report.mismatched), 1)
+
+    def test_file_not_in_the_library_is_kept(self):
+        (self.drop / "Unsorted.iso").write_bytes(b"x")
+        report = clean.survey([self.drop], [self.roms.parent])
+        self.assertEqual(report.safe, [])
+        self.assertEqual(len(report.unmatched), 1)
+
+    def test_dry_run_deletes_nothing(self):
+        self._pair("Zelda.n64")
+        report = clean.survey([self.drop], [self.roms.parent])
+        clean.purge(report, dry_run=True, log=lambda *a: None)
+        self.assertTrue((self.drop / "Zelda.n64").is_file())
+
+    def test_purge_removes_only_the_drop_copy(self):
+        self._pair("Zelda.n64")
+        report = clean.survey([self.drop], [self.roms.parent])
+        removed, freed = clean.purge(report, dry_run=False, log=lambda *a: None)
+        self.assertEqual(removed, 1)
+        self.assertFalse((self.drop / "Zelda.n64").exists())
+        self.assertTrue((self.roms / "Zelda.n64").is_file())
+
+    def test_quick_mode_matches_on_size_only(self):
+        self._pair("Zelda.n64", b"aaaa", other=b"bbbb")     # same size
+        self.assertEqual(len(clean.survey([self.drop], [self.roms.parent],
+                                          quick=True).safe), 1)
+        self.assertEqual(len(clean.survey([self.drop], [self.roms.parent],
+                                          quick=False).safe), 0)
+
+    def test_empty_folders_are_pruned_after_purge(self):
+        nested = self.drop / "Some Game"
+        nested.mkdir()
+        (nested / "game.n64").write_bytes(b"z")
+        (self.roms / "game.n64").write_bytes(b"z")
+        report = clean.survey([self.drop], [self.roms.parent])
+        clean.purge(report, dry_run=False, log=lambda *a: None)
+        clean.prune_empty_dirs([self.drop], dry_run=False, log=lambda *a: None)
+        self.assertFalse(nested.exists())
+        self.assertTrue(self.drop.is_dir())
 
 
 if __name__ == "__main__":

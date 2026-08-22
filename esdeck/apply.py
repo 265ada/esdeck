@@ -12,8 +12,9 @@ from __future__ import annotations
 import ctypes
 import os
 import shutil
-import zipfile
 from pathlib import Path
+
+from . import archives
 
 SAFE_TYPES = {"mkdir", "copy", "copy_tree", "extract", "m3u", "hide"}
 INERT_TYPES = {"manual", "suggested_command", "make_launcher"}
@@ -46,24 +47,6 @@ def set_hidden(path: Path) -> bool:
                                                               FILE_ATTRIBUTE_HIDDEN))
     except (AttributeError, OSError):
         return False
-
-
-def _extract_zip(src: Path, dst: Path) -> int:
-    count = 0
-    with zipfile.ZipFile(src) as zf:
-        for member in zf.infolist():
-            name = member.filename
-            if name.endswith("/"):
-                continue
-            # Zip-slip guard: reject absolute paths and parent traversal.
-            target = (dst / name).resolve()
-            if not str(target).startswith(str(dst.resolve())):
-                raise PermissionError(f"unsafe path in archive: {name}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(member) as fsrc, open(target, "wb") as fdst:
-                shutil.copyfileobj(fsrc, fdst)
-            count += 1
-    return count
 
 
 def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = None,
@@ -112,16 +95,16 @@ def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = No
                 if dst.exists() and not overwrite:
                     res.skipped.append(f"copy_tree: {dst.name} already exists")
                     continue
-                log(f"  copydir {src.name}\ -> {dst}")
+                log(f"  copydir {src.name} -> {dst}")
                 if not dry_run:
                     shutil.copytree(src, dst, dirs_exist_ok=overwrite)
 
             elif kind == "extract":
                 src, dst = Path(a["src"]), Path(a["dst"]); guard(dst)
-                log(f"  unzip  {src.name} -> {dst}")
+                log(f"  unpack {src.name} -> {dst}")
                 if not dry_run:
-                    dst.mkdir(parents=True, exist_ok=True)
-                    _extract_zip(src, dst)
+                    written = archives.extract(src, dst, log=log)
+                    log(f"         {written} file(s)")
 
             elif kind == "hide":
                 p = Path(a["path"]); guard(p)

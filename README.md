@@ -130,6 +130,13 @@ Behaviour worth knowing:
 - **Multi-disc sets get an `.m3u`** so ES-DE shows one entry. This works whether the discs are
   files in one folder or, as they usually arrive, four sibling folders named
   `Game (USA) (Disc 1)` … `(Disc 4)` - those are merged into a single game.
+- **Every archive format is handled** - `.zip`, `.7z`, `.rar`, `.cab`, `.tar`, `.gz`, `.xz`
+  and the rest - through 7-Zip, which `install.bat` installs. Archives are opened during
+  scanning too, so a game inside a `.7z` is identified without unpacking it first, README
+  included.
+- **Split archives are one game, not fifty.** `Collection.part01.rar` through `.part47`,
+  `Game.7z.001`, `Game.zip.001`, `Game.r00` and bare `.part01` sets are all recognised;
+  only the first volume is opened and 7-Zip joins the rest.
 - **Arcade/Neo Geo `.zip` files are copied, never extracted** — the zip *is* the ROM there.
 - **A folder of loose ROMs** (`SNES Games/`) splits into one entry per game; a folder with a README,
   an installer, or a `.cue`+`.bin` set stays a single game.
@@ -206,6 +213,23 @@ failing mysteriously at launch.
 Optional firmware is not nagged about - a PS1 game runs fine without a BIOS, so
 esdeck stays quiet about it.
 
+## Reclaiming the drop folder
+
+esdeck copies rather than moves, so a bad sort never loses anything - but that means a
+game briefly exists twice, and a four-disc PSX game is 2.2 GB in each place.
+
+```bash
+esdeck clean
+```
+
+That lists what could be freed and deletes nothing. `--yes` removes the drop-folder copies,
+but only files it has **verified byte for byte** against the library first: a full SHA-256
+of both copies, not a name or size match. Anything that does not match, or is not in the
+library at all, is kept and reported. `esdeck sync --clean` folds it into a normal run.
+
+Deleting game files is the most destructive thing esdeck does, so it is opt-in, dry-run by
+default, and never touches a file it has not proved is already safe elsewhere.
+
 ## Repairing an existing setup
 
 `esdeck tidy` fixes a library built by hand, by another tool, or before these rules
@@ -250,6 +274,7 @@ esdeck profile import --file esdeck-profile.json
 | `esdeck apply <plan>` | Execute the safe half of a plan (dry run by default) |
 | `esdeck drives` | Show drives and free space, and the suggested library location |
 | `esdeck bios` | Report which BIOS files your systems need and verify the ones you have |
+| `esdeck clean` | Free space: delete drop-folder copies verified present in the library |
 | `esdeck tidy` | Repair an existing library and find duplicate copies |
 | `esdeck cores` | Install RetroArch cores (`--all`, `--common`, or just what your systems need) |
 | `esdeck launchers` | Create `.bat` launchers so ES-DE can see installed PC games |

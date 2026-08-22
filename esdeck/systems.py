@@ -80,7 +80,7 @@ AMBIGUOUS_EXTS = {
 # Installer / PC-game markers -> the "windows" system, handled as an install job.
 INSTALLER_NAMES = ("setup.exe", "install.exe", "autorun.exe")
 INSTALLER_EXTS = (".exe", ".msi")
-ARCHIVE_EXTS = (".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz", ".tgz")
+from .archives import ARCHIVE_EXTS  # noqa: E402  (every format 7-Zip reads)
 DISC_EXTS = (".iso", ".cue", ".bin", ".chd", ".gdi", ".cdi", ".img", ".mds", ".mdf", ".ccd")
 DOC_NAMES = ("readme", "read me", "read-me", "install", "instructions", "setup",
              "notes", "info", "how to", "howto", "liesmich")

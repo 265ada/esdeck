@@ -9,6 +9,7 @@
     esdeck cores           install RetroArch cores for your systems
     esdeck bios            check the BIOS files your systems need
     esdeck tidy            repair an existing library and find duplicates
+    esdeck clean           free space: remove drop-folder copies already filed
     esdeck launchers       create .bat launchers for installed PC games
     esdeck link            point ES-DE at esdeck's ROM directory
     esdeck profile         export/import machine-independent settings
@@ -24,7 +25,8 @@ from pathlib import Path
 
 from . import apply as apply_mod
 from . import bios as bios_mod
-from . import bootstrap, config, cores as cores_mod, drives as drives_mod
+from . import bootstrap, clean as clean_mod, config, cores as cores_mod
+from . import drives as drives_mod
 from . import launcher, plan as plan_mod
 from . import scan as scan_mod
 from . import tidy as tidy_mod
@@ -283,6 +285,34 @@ def cmd_sync(args) -> int:
     if not made:
         _p("  nothing to do")
 
+    # 5. Optionally reclaim the drop folder now the games are filed.
+    if args.clean:
+        _p("\n[5/5] Reclaiming the drop folder")
+        report = clean_mod.survey(sources, [cfg.rom_dir, cfg.install_dir],
+                                  quick=args.quick_verify)
+        if report.safe:
+            removed, freed = clean_mod.purge(report, dry_run=not args.yes, log=_p)
+            _p(f"  {removed} file(s), {freed / 1_073_741_824:.2f} GB"
+               f"{'' if args.yes else ' (dry run)'}")
+            if args.yes:
+                clean_mod.prune_empty_dirs(sources, dry_run=False, log=_p)
+        else:
+            _p("  nothing to reclaim")
+        for c in report.mismatched + report.unmatched:
+            _p(f"  kept   {c.source.name}: {c.reason}")
+
+    # BIOS: say so before the user wonders why a game will not start.
+    bios_problems = []
+    for key in sorted({pl.get("system") for pl in bundle["plans"] if pl.get("system")}):
+        for w in bios_mod.warn_lines(key):
+            bios_problems.append(f"{key}: {w}")
+    if bios_problems:
+        _p("\nBIOS needed - these will most likely not start yet:")
+        for b in bios_problems:
+            _p(f"  - {b}")
+        _p("  esdeck does not download BIOS files (copyrighted firmware).")
+        _p("  Run 'esdeck bios' for the exact filenames and folder.")
+
     # What is left for a human.
     if unresolved:
         _p(f"\nNeeds a decision - system could not be determined: {', '.join(unresolved)}")
@@ -297,6 +327,54 @@ def cmd_sync(args) -> int:
     else:
         _p("\nDone. Restart ES-DE (or press F5 in it) to see the new games.")
     return 1 if errors else 0
+
+
+# -------------------------------------------------------------------- clean
+def cmd_clean(args) -> int:
+    """Delete drop-folder copies that are verified present in the library."""
+    cfg = config.load()
+    sources = [Path(d) for d in cfg.source_dirs]
+    if args.source:
+        sources = [Path(args.source)]
+    if not sources:
+        _p("No drop folder configured. esdeck init --source-dir <path>")
+        return 2
+
+    roots = [cfg.rom_dir, cfg.install_dir]
+    _p("Verifying drop-folder files against the library"
+       + (" (size only)" if args.quick else " (full content hash)") + " ...")
+    report = clean_mod.survey(sources, roots, quick=args.quick)
+
+    if report.safe:
+        _p("")
+        _p(f"{len(report.safe)} file(s) safely in the library, "
+           f"{report.reclaimable / 1_073_741_824:.2f} GB reclaimable:")
+        clean_mod.purge(report, dry_run=not args.yes, log=_p)
+    if report.mismatched:
+        _p("")
+        _p(f"{len(report.mismatched)} file(s) NOT removed - same name in the library "
+           f"but different content:")
+        for c in report.mismatched:
+            _p(f"  keep   {c.source.name}")
+    if report.unmatched:
+        _p("")
+        _p(f"{len(report.unmatched)} file(s) NOT removed - not in the library "
+           f"(never sorted, or skipped as UNKNOWN):")
+        for c in report.unmatched[:20]:
+            _p(f"  keep   {c.source.name}")
+        if len(report.unmatched) > 20:
+            _p(f"  ... and {len(report.unmatched) - 20} more")
+
+    if args.yes:
+        clean_mod.prune_empty_dirs(sources, dry_run=False, log=_p)
+
+    if not report.safe:
+        _p("")
+        _p("Nothing to reclaim - the drop folder holds nothing already in the library.")
+    elif not args.yes:
+        _p("")
+        _p("DRY RUN - nothing deleted. Re-run with --yes to free the space.")
+    return 0
 
 
 # ------------------------------------------------------------------- drives
@@ -586,6 +664,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="disable the write-outside-ROM-dir guard")
     p.set_defaults(func=cmd_apply)
 
+    p = sub.add_parser("clean", help="delete drop-folder copies already in the library")
+    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
+    p.add_argument("--yes", action="store_true", help="delete (default is a dry run)")
+    p.add_argument("--quick", action="store_true",
+                   help="verify by size only instead of hashing the contents")
+    p.set_defaults(func=cmd_clean)
+
     p = sub.add_parser("drives", help="show drives and free space")
     p.add_argument("--suggest", action="store_true",
                    help="print only the suggested folder, for scripts")
@@ -632,6 +717,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--system", help="force a system for every item")
     p.add_argument("--no-cores", action="store_true", help="skip the RetroArch core step")
+    p.add_argument("--clean", action="store_true",
+                   help="afterwards delete drop-folder copies verified in the library")
+    p.add_argument("--quick-verify", action="store_true",
+                   help="with --clean, verify by size instead of hashing")
     p.set_defaults(func=cmd_sync)
 
     p = sub.add_parser("doctor", help="check this machine's setup")

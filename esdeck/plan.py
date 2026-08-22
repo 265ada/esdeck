@@ -11,6 +11,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
+from . import archives
 from .config import Config
 from .scan import ScanItem, disc_number, clean_title
 
@@ -89,7 +90,7 @@ def build(item: ScanItem, cfg: Config) -> dict:
     target = rom_root / (system or "UNKNOWN")
 
     roms = item.by_kind("rom") + item.by_kind("disc")
-    archives = item.by_kind("archive")
+    archive_files = item.by_kind("archive")
     installers = item.by_kind("installer")
 
     # --- Windows/PC games: install, don't copy ---------------------------
@@ -98,13 +99,14 @@ def build(item: ScanItem, cfg: Config) -> dict:
         actions.append(_action("mkdir", path=str(game_dir)))
 
         # A PC game shipped as an archive still has to be unpacked somewhere.
-        for f in archives:
-            if cfg.auto_extract and f.ext == ".zip":
+        for f in archive_files:
+            if cfg.auto_extract and archives.can_read(f.path):
                 actions.append(_action("extract", src=str(f.path), dst=str(game_dir)))
             else:
                 actions.append(_action(
                     "extract", src=str(f.path), dst=str(game_dir), needs_review=True,
-                    why=f"{f.ext} needs an external extractor (7-Zip); verify contents first."))
+                    why=f"{f.ext} needs 7-Zip, which is not installed - "
+                        f"run 'esdeck bootstrap --packages 7zip --yes'"))
 
         for f in installers:
             actions.append(_action(
@@ -119,7 +121,7 @@ def build(item: ScanItem, cfg: Config) -> dict:
             target_exe=None,
             needs_review=True,
             why="Point this at the installed game .exe so ES-DE can launch it."))
-        if not installers and not archives:
+        if not installers and not archive_files:
             warnings.append("No installer or archive found for a PC game; check the README steps.")
 
     # --- DOS/ScummVM/ports: the whole folder is the game -----------------
@@ -138,16 +140,17 @@ def build(item: ScanItem, cfg: Config) -> dict:
             actions.append(_action("copy", src=str(f.path), dst=str(dest_dir / f.path.name),
                                    size=f.size))
 
-        for f in archives:
+        for f in archive_files:
             if _zip_looks_like_rom(f.path, system):
                 actions.append(_action("copy", src=str(f.path), dst=str(dest_dir / f.path.name),
                                        size=f.size))
-            elif cfg.auto_extract and f.ext == ".zip":
+            elif cfg.auto_extract and archives.can_read(f.path):
                 actions.append(_action("extract", src=str(f.path), dst=str(dest_dir)))
             else:
                 actions.append(_action(
                     "extract", src=str(f.path), dst=str(dest_dir), needs_review=True,
-                    why=f"{f.ext} needs an external extractor (7-Zip); verify contents first."))
+                    why=f"{f.ext} needs 7-Zip, which is not installed - "
+                        f"run 'esdeck bootstrap --packages 7zip --yes'"))
 
         # Multi-disc sets get an .m3u so ES-DE shows one entry.
         #
@@ -199,7 +202,7 @@ def build(item: ScanItem, cfg: Config) -> dict:
                                    flag="needs_bios", source=hints.source, needs_review=True))
         if hints.discs > 1 and not any(a["type"] == "m3u" for a in actions):
             warnings.append(f"README mentions {hints.discs} discs but only one was found.")
-    elif not roms and not archives and not installers:
+    elif not roms and not archive_files and not installers:
         warnings.append("Nothing installable found (no ROM, archive, or installer).")
 
     return {
