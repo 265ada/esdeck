@@ -6,6 +6,18 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.7.1] - 2026-08-22
+
+### Fixed
+- **The scan phase showed nothing at all.** Progress covered the copying, but
+  reading a large drop folder is the slower half - every archive is opened to
+  list its contents and every disc image is read for its signature - so a sort
+  of a big collection sat on "[1/4] Reading the drop folder" for a long time
+  with no sign of life. It now reports a running count and the item it is
+  looking at, and finishes with how long the scan took.
+- Where the size of a job is not known in advance, a counter is shown instead
+  of a progress bar frozen at 0%, which reads as no progress at all.
+
 ## [0.7.0] - 2026-08-22
 
 ### Added

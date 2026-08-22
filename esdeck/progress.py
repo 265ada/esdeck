@@ -91,7 +91,19 @@ class Progress:
         filled = int(self.fraction * BAR_WIDTH)
         return "#" * filled + "-" * (BAR_WIDTH - filled)
 
+    @property
+    def has_total(self) -> bool:
+        """Whether the size of the job is known, and a percentage meaningful."""
+        return bool(self.total_items or self.total_bytes)
+
     def line(self) -> str:
+        if not self.has_total:
+            # Nothing to measure against - a bar frozen at 0% would suggest no
+            # progress at all, so report the running count instead.
+            line = f"  working  elapsed {human_time(self.elapsed)}"
+            if self._label:
+                line += f"  {self._label[:90]}"
+            return line
         parts = [f"[{self.bar()}] {self.fraction * 100:5.1f}%"]
         if self.total_items:
             parts.append(f"{self.items_done}/{self.total_items}")

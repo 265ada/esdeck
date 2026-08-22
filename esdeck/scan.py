@@ -447,8 +447,14 @@ def is_container(folder: Path) -> bool:
     return not own
 
 
-def scan(source: Path, _depth: int = 0) -> list[ScanItem]:
-    """Scan a drop folder. Each subfolder is one game; loose files are one each."""
+def scan(source: Path, _depth: int = 0, on_progress=None) -> list[ScanItem]:
+    """Scan a drop folder. Each subfolder is one game; loose files are one each.
+
+    on_progress, if given, is called with each entry's name as it is examined.
+    Scanning a large collection is slow - every archive is opened to list its
+    contents and every disc image is read for its signature - so without this
+    a long scan looks like a hang.
+    """
     source = Path(source)
     if source.is_file():
         return [scan_item(source)]
@@ -456,12 +462,14 @@ def scan(source: Path, _depth: int = 0) -> list[ScanItem]:
     for entry in sorted(source.iterdir(), key=lambda p: p.name.lower()):
         if entry.name.startswith("."):
             continue
+        if on_progress is not None:
+            on_progress(entry.name)
         if entry.is_dir():
             if should_split(entry):
                 items.extend(scan_item(f) for f in sorted(entry.iterdir())
                              if f.is_file() and classify(f) in ("rom", "disc", "archive"))
             elif is_container(entry) and _depth < MAX_DEPTH:
-                items.extend(scan(entry, _depth + 1))
+                items.extend(scan(entry, _depth + 1, on_progress))
             else:
                 items.append(scan_item(entry))
         elif archives.is_later_volume(entry):

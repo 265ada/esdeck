@@ -288,13 +288,27 @@ def cmd_sync(args) -> int:
     _p(f"{header}  {', '.join(str(s) for s in sources)} -> {cfg.rom_dir}\n")
 
     # 1. What is in the drop folder?
+    #
+    # This is the slow half on a big collection: every archive is opened to
+    # list what is inside and every disc image is read for its signature. It
+    # therefore reports as it goes, or a long scan looks exactly like a hang.
     _p("[1/4] Reading the drop folder")
     items = []
+    seen = [0]
+    scan_bar = progress_mod.Progress(enabled=True)
+
+    def scanning(name):
+        seen[0] += 1
+        scan_bar.advance(items=1, label=f"{seen[0]} examined: {name}")
+
     for src in sources:
         if not src.exists():
             _p(f"  skip {src}: does not exist")
             continue
-        items.extend(scan_mod.scan(src))
+        items.extend(scan_mod.scan(src, on_progress=scanning))
+    scan_bar.finish(f"  examined {seen[0]} item(s) in "
+                    f"{progress_mod.human_time(scan_bar.elapsed)}"
+                    if seen[0] else "")
     if not items:
         _p("  nothing to do - the drop folder is empty")
         return 0
