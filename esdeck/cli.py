@@ -5,6 +5,7 @@
     esdeck scan <dir>      show what esdeck thinks each dropped game is
     esdeck plan <dir>      write a reviewable plan.json
     esdeck apply <plan>    execute the safe half of a plan
+    esdeck cores           install RetroArch cores for your systems
     esdeck launchers       create .bat launchers for installed PC games
     esdeck link            point ES-DE at esdeck's ROM directory
     esdeck profile         export/import machine-independent settings
@@ -19,7 +20,8 @@ import sys
 from pathlib import Path
 
 from . import apply as apply_mod
-from . import bootstrap, config, launcher, plan as plan_mod, scan as scan_mod
+from . import bootstrap, config, cores as cores_mod, launcher, plan as plan_mod
+from . import scan as scan_mod
 from .systems import BY_KEY
 
 DEFAULT_PLAN = "esdeck-plan.json"
@@ -47,6 +49,8 @@ def cmd_init(args) -> int:
         cfg.es_config_dir = str(Path(args.es_config_dir).expanduser())
     if args.install_dir:
         cfg.install_dir = str(Path(args.install_dir).expanduser())
+    if args.source_dir:
+        cfg.source_dirs = [str(Path(d).expanduser()) for d in args.source_dir]
     if not cfg.install_dir or (args.rom_dir and not args.install_dir):
         cfg.install_dir = str(Path(cfg.rom_dir) / "windows")
     path = config.save(cfg)
@@ -93,8 +97,27 @@ def _describe(item) -> None:
         _p(f"       readme {h.source}: " + ("; ".join(bits) if bits else "no actionable hints"))
 
 
+def _sources(args, cfg) -> list[Path]:
+    """The folders to scan: an explicit path, else the configured drop folders."""
+    if args.source:
+        return [Path(args.source)]
+    return [Path(d) for d in cfg.source_dirs]
+
+
 def cmd_scan(args) -> int:
-    items = scan_mod.scan(Path(args.source))
+    cfg = config.load()
+    sources = _sources(args, cfg)
+    if not sources:
+        _p("No drop folder given or configured.")
+        _p("  esdeck scan <dir>            scan a folder once")
+        _p("  esdeck init --source-dir X   remember X as your drop folder")
+        return 2
+    items = []
+    for src in sources:
+        if not src.exists():
+            _p(f"skip {src}: does not exist")
+            continue
+        items.extend(scan_mod.scan(src))
     if not items:
         _p("Nothing found.")
         return 1
@@ -113,7 +136,17 @@ def cmd_plan(args) -> int:
     if not cfg.rom_dir:
         _p("No ROM directory configured. Run: esdeck init --rom-dir <path>")
         return 2
-    items = scan_mod.scan(Path(args.source))
+    sources = _sources(args, cfg)
+    if not sources:
+        _p("No drop folder given or configured. Pass one, or set a default with:")
+        _p(r"  esdeck init --source-dir D:\Games\Incoming")
+        return 2
+    items = []
+    for src in sources:
+        if not src.exists():
+            _p(f"skip {src}: does not exist")
+            continue
+        items.extend(scan_mod.scan(src))
     if args.system:
         if args.system not in BY_KEY:
             _p(f"Unknown system {args.system!r}. Known: {', '.join(sorted(BY_KEY))}")
@@ -159,6 +192,16 @@ def cmd_apply(args) -> int:
     if not args.yes:
         _p("\nDRY RUN. Re-run with --yes to write files.")
     return 1 if failed else 0
+
+
+# -------------------------------------------------------------------- cores
+def cmd_cores(args) -> int:
+    """Install the RetroArch cores needed by the systems that have games."""
+    cfg = config.load()
+    cores_mod.run(Path(cfg.rom_dir), only=args.core, dry_run=not args.yes, log=_p)
+    if not args.yes:
+        _p("\nDRY RUN. Re-run with --yes to download from the libretro buildbot.")
+    return 0
 
 
 # ---------------------------------------------------------------- launchers
@@ -285,6 +328,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rom-dir")
     p.add_argument("--es-config-dir")
     p.add_argument("--install-dir")
+    p.add_argument("--source-dir", action="append",
+                   help="drop folder to scan when no path is given (repeatable)")
     p.add_argument("--force", action="store_true", help="re-autodetect, discard existing config")
     p.set_defaults(func=cmd_init)
 
@@ -295,12 +340,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_bootstrap)
 
     p = sub.add_parser("scan", help="identify dropped games")
-    p.add_argument("source")
+    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
     p.add_argument("--json", help="also write the raw scan to this file")
     p.set_defaults(func=cmd_scan)
 
     p = sub.add_parser("plan", help="build a reviewable install plan")
-    p.add_argument("source")
+    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
     p.add_argument("--out")
     p.add_argument("--system", help="force a system for every item")
     p.set_defaults(func=cmd_plan)
@@ -314,6 +359,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unsafe-any-path", action="store_true",
                    help="disable the write-outside-ROM-dir guard")
     p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("cores", help="install RetroArch cores for your systems")
+    p.add_argument("--core", action="append", help="specific core name (repeatable)")
+    p.add_argument("--yes", action="store_true", help="download (default is a dry run)")
+    p.set_defaults(func=cmd_cores)
 
     p = sub.add_parser("launchers", help="create .bat launchers for installed PC games")
     p.add_argument("--yes", action="store_true", help="write (default is a dry run)")
