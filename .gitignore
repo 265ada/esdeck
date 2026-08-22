@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+esdeck-plan.json
+esdeck-profile.json
+esdeck-scan.json
+.vscode/
+.idea/

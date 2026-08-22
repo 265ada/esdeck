@@ -1,0 +1,123 @@
+"""Execute a plan.
+
+Safe actions (mkdir/copy/extract/m3u) run on approval of the plan as a whole.
+Actions flagged ``needs_review`` - installers, README-derived commands, manual
+steps - are never executed by this module. `suggested_command` is *always*
+inert: it is printed for a human to run, because its text came from a file we
+did not write.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import zipfile
+from pathlib import Path
+
+SAFE_TYPES = {"mkdir", "copy", "extract", "m3u"}
+INERT_TYPES = {"manual", "suggested_command", "make_launcher"}
+
+
+class Result:
+    def __init__(self) -> None:
+        self.done: list[str] = []
+        self.skipped: list[str] = []
+        self.errors: list[str] = []
+
+    def __str__(self) -> str:
+        return f"{len(self.done)} applied, {len(self.skipped)} skipped, {len(self.errors)} errors"
+
+
+def _extract_zip(src: Path, dst: Path) -> int:
+    count = 0
+    with zipfile.ZipFile(src) as zf:
+        for member in zf.infolist():
+            name = member.filename
+            if name.endswith("/"):
+                continue
+            # Zip-slip guard: reject absolute paths and parent traversal.
+            target = (dst / name).resolve()
+            if not str(target).startswith(str(dst.resolve())):
+                raise PermissionError(f"unsafe path in archive: {name}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as fsrc, open(target, "wb") as fdst:
+                shutil.copyfileobj(fsrc, fdst)
+            count += 1
+    return count
+
+
+def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = None,
+               overwrite: bool = False, log=print) -> Result:
+    res = Result()
+    root_paths = [Path(r) for r in (roots or []) if r]
+
+    def guard(dst: Path) -> None:
+        if not root_paths:
+            return
+        for r in root_paths:
+            try:
+                dst.resolve().relative_to(r.resolve())
+                return
+            except ValueError:
+                continue
+        raise PermissionError(f"refusing to write outside {', '.join(map(str, root_paths))}: {dst}")
+
+    for a in plan.get("actions", []):
+        kind = a["type"]
+        if a.get("needs_review") or kind in INERT_TYPES:
+            res.skipped.append(f"{kind}: {a.get('text') or a.get('exe') or a.get('dest') or ''}")
+            continue
+        if kind not in SAFE_TYPES:
+            res.skipped.append(f"{kind}: unknown action type")
+            continue
+        try:
+            if kind == "mkdir":
+                p = Path(a["path"]); guard(p)
+                log(f"  mkdir  {p}")
+                if not dry_run:
+                    p.mkdir(parents=True, exist_ok=True)
+
+            elif kind == "copy":
+                src, dst = Path(a["src"]), Path(a["dst"]); guard(dst)
+                if dst.exists() and not overwrite:
+                    res.skipped.append(f"copy: {dst.name} already exists")
+                    continue
+                log(f"  copy   {src.name} -> {dst}")
+                if not dry_run:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+
+            elif kind == "extract":
+                src, dst = Path(a["src"]), Path(a["dst"]); guard(dst)
+                log(f"  unzip  {src.name} -> {dst}")
+                if not dry_run:
+                    dst.mkdir(parents=True, exist_ok=True)
+                    _extract_zip(src, dst)
+
+            elif kind == "m3u":
+                p = Path(a["path"]); guard(p)
+                log(f"  m3u    {p.name} ({len(a['entries'])} discs)")
+                if not dry_run:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_text("\n".join(a["entries"]) + "\n", encoding="utf-8")
+
+            res.done.append(kind)
+        except Exception as exc:                     # noqa: BLE001 - reported, not raised
+            res.errors.append(f"{kind}: {exc}")
+            log(f"  ERROR  {kind}: {exc}")
+    return res
+
+
+def manual_steps(plan: dict) -> list[str]:
+    """Human-facing to-do list left over after a plan is applied."""
+    out = []
+    for a in plan.get("actions", []):
+        if a["type"] == "manual":
+            out.append(a["text"] + (f"  [{a.get('source')}]" if a.get("source") else ""))
+        elif a["type"] == "suggested_command":
+            out.append(f"Review before running ({a.get('source')}): {a['text']}")
+        elif a["type"] == "install":
+            out.append(f"Run installer: {a['exe']}  (install into {a.get('dest')})")
+        elif a["type"] == "make_launcher":
+            out.append(f"Create launcher {a['dest']} pointing at the installed game .exe")
+    return out
