@@ -344,6 +344,9 @@ def cmd_link(args) -> int:
     values = {"ROMDirectory": cfg.rom_dir}
     if cfg.media_dir:
         values["MediaDirectory"] = cfg.media_dir
+    # esdeck hides the data half of multi-file games (.bin next to .cue, the
+    # disc folder behind an .m3u). ES-DE only respects that with this off.
+    values["ShowHiddenFiles"] = "false"
     try:
         changes = config.write_es_settings(Path(cfg.es_config_dir), values,
                                            dry_run=not args.yes, create=args.create)
@@ -411,6 +414,9 @@ def cmd_doctor(args) -> int:
         check(same or settings["ROMDirectory"] == "%ROMPATH%",
               f"ES-DE ROM dir matches esdeck ({settings['ROMDirectory']})",
               f"point ES-DE at {cfg.rom_dir} or re-run esdeck init")
+    if settings.get("ShowHiddenFiles") == "true":
+        check(False, "ES-DE hides esdeck's data files (ShowHiddenFiles)",
+              "esdeck link --yes  (otherwise every disc of a game is listed twice)")
     check(bootstrap.have_winget(), "winget available", "install App Installer from the MS Store")
     _p(f"\n{'No problems found.' if not problems else f'{problems} problem(s) found.'}")
     return 1 if problems else 0

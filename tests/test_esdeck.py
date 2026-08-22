@@ -177,8 +177,14 @@ class TestPlan(ScanFixture):
         pl = plan.build(self.items()["FF7"], self.cfg)
         m3u = [a for a in pl["actions"] if a["type"] == "m3u"]
         self.assertEqual(len(m3u), 1)
+        # The playlist sits in the system folder and points into the game's
+        # subfolder, which is hidden so ES-DE lists the .m3u only.
+        self.assertEqual(Path(m3u[0]["path"]).parent, self.roms / "psx")
         self.assertEqual(m3u[0]["entries"],
-                         ["FF7 (Disc 1).cue", "FF7 (Disc 2).cue", "FF7 (Disc 3).cue"])
+                         ["FF7/FF7 (Disc 1).cue", "FF7/FF7 (Disc 2).cue",
+                          "FF7/FF7 (Disc 3).cue"])
+        hides = [a for a in pl["actions"] if a["type"] == "hide"]
+        self.assertEqual([Path(a["path"]).name for a in hides], ["FF7"])
 
     def test_readme_command_becomes_review_only_action(self):
         touch(self.src / "Racer" / "setup.exe")
@@ -367,6 +373,28 @@ class TestEsSettings(unittest.TestCase):
         changes = config.write_es_settings(self.es, {"NoSuchSetting": "x"})
         self.assertTrue(any("not present" in c for c in changes))
         self.assertNotIn("NoSuchSetting", self.path.read_text(encoding="utf-8"))
+
+    def test_created_file_uses_the_right_element_types(self):
+        """ES-DE is typed: ShowHiddenFiles is a <bool>, a <string> is ignored."""
+        self.path.unlink()
+        config.write_es_settings(self.es, {"ROMDirectory": r"D:\ROMs",
+                                           "ShowHiddenFiles": "false"}, create=True)
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn('<bool name="ShowHiddenFiles" value="false" />', text)
+        self.assertIn('<string name="ROMDirectory" value="D:\\ROMs" />', text)
+
+    def test_setting_tag_types(self):
+        self.assertEqual(config.setting_tag("ShowHiddenFiles", "false"), "bool")
+        self.assertEqual(config.setting_tag("MaxVRAM", "512"), "int")
+        self.assertEqual(config.setting_tag("ROMDirectory", r"D:\ROMs"), "string")
+
+    def test_create_writes_a_file_es_de_can_read_back(self):
+        self.path.unlink()
+        config.write_es_settings(self.es, {"ROMDirectory": r"D:\ROMs",
+                                           "ShowHiddenFiles": "false"}, create=True)
+        got = config.read_es_settings(self.es)
+        self.assertEqual(got["ROMDirectory"], r"D:\ROMs")
+        self.assertEqual(got["ShowHiddenFiles"], "false")
 
     def test_missing_file_raises(self):
         self.path.unlink()
@@ -570,6 +598,7 @@ class TestMultiDiscFolders(ScanFixture):
         self.assertEqual(len(m3u), 1)
         self.assertEqual([e[-12:] for e in m3u[0]["entries"]],
                          ["(Disc 1).cue", "(Disc 2).cue", "(Disc 3).cue"])
+        self.assertTrue(all(e.startswith("Some RPG") for e in m3u[0]["entries"]))
 
     def test_different_games_are_not_merged(self):
         self._psx_disc_folder("Game A", 1)

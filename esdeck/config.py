@@ -69,6 +69,20 @@ def read_es_settings(es_config_dir: Path) -> dict:
     return out
 
 
+def setting_tag(name: str, value: str) -> str:
+    """The XML element ES-DE uses for a setting: <bool>, <int> or <string>.
+
+    ES-DE is typed - it stores ShowHiddenFiles as <bool>, not <string> - and a
+    setting written with the wrong element is ignored. This only matters when
+    creating a settings file from scratch; edits in place keep the existing tag.
+    """
+    if value in ("true", "false"):
+        return "bool"
+    if isinstance(value, str) and value.lstrip("-").isdigit():
+        return "int"
+    return "string"
+
+
 def es_settings_path(es_config_dir: Path) -> Path:
     """Where ES-DE keeps es_settings.xml (it moved into settings/ in ES-DE 3)."""
     nested = Path(es_config_dir) / "settings" / "es_settings.xml"
@@ -94,7 +108,8 @@ def write_es_settings(es_config_dir: Path, values: dict, *, dry_run: bool = Fals
         changes = [f"created {path}"] + [f"{k}: -> {v!r}" for k, v in values.items()]
         if not dry_run:
             path.parent.mkdir(parents=True, exist_ok=True)
-            body = "".join(f'<string name="{k}" value="{v}" />\n' for k, v in values.items())
+            body = "".join(f'<{setting_tag(k, v)} name="{k}" value="{v}" />\n'
+                           for k, v in values.items())
             path.write_text('<?xml version="1.0"?>\n' + body, encoding="utf-8")
         return changes
 

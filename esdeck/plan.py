@@ -24,6 +24,22 @@ FOLDER_SYSTEMS = {"dos", "scummvm", "ports"}
 # Multi-file disc formats that belong in a per-game subfolder.
 MULTIFILE_EXTS = {".cue", ".bin", ".ccd", ".img", ".sub", ".mds", ".mdf", ".gdi", ".raw"}
 
+# Extensions that can head an .m3u playlist, i.e. one entry per disc.
+PLAYLIST_EXTS = (".cue", ".chd", ".iso", ".pbp", ".gdi", ".ccd", ".toc")
+
+# The file an emulator should actually be pointed at, best first. A .cue
+# describes the .bin next to it, so the .cue is the game and the .bin is data.
+ENTRY_POINT_ORDER = (".m3u", ".cue", ".gdi", ".ccd", ".toc", ".chd", ".iso", ".img", ".bin")
+
+
+def entry_point(roms):
+    """The one file that should be visible in ES-DE for a multi-file game."""
+    for ext in ENTRY_POINT_ORDER:
+        for f in roms:
+            if f.ext == ext:
+                return f
+    return None
+
 _FLAG_ADVICE = {
     "needs_bios": "BIOS/firmware required - place the listed files in the emulator's system folder.",
     "needs_patch": "A patch must be applied by hand (xdelta/IPS/BPS); esdeck will not patch ROMs.",
@@ -134,17 +150,38 @@ def build(item: ScanItem, cfg: Config) -> dict:
                     why=f"{f.ext} needs an external extractor (7-Zip); verify contents first."))
 
         # Multi-disc sets get an .m3u so ES-DE shows one entry.
+        #
+        # ES-DE lists every file whose extension the system claims, and psx
+        # claims .bin, .cue and .m3u alike - so four discs would appear nine
+        # times. The .m3u therefore lives in the system folder, the discs live
+        # in a subfolder, and that subfolder is hidden so only the .m3u shows.
+        made_playlist = False
         if cfg.make_m3u:
             discs = {}
             for f in roms:
                 n = disc_number(f.path.stem)
-                if n and f.ext in (".cue", ".chd", ".iso", ".pbp", ".gdi", ".m3u"):
-                    discs[n] = (dest_dir / f.path.name).name
+                if n and f.ext in PLAYLIST_EXTS:
+                    discs[n] = f.path.name
             if len(discs) > 1:
-                entries = [discs[k] for k in sorted(discs)]
                 title = clean_title(item.name)
-                actions.append(_action("m3u", path=str(dest_dir / f"{title}.m3u"),
+                entries = [f"{dest_dir.name}/{discs[k]}" for k in sorted(discs)]
+                actions.append(_action("m3u", path=str(target / f"{title}.m3u"),
                                        entries=entries))
+                actions.append(_action(
+                    "hide", path=str(dest_dir),
+                    why="so ES-DE shows the .m3u only, not every disc twice"))
+                made_playlist = True
+
+        # A single-disc game still has a .cue and a .bin, which ES-DE would
+        # list as two games. Hide everything that is not the entry point.
+        if not made_playlist and len(roms) > 1:
+            primary = entry_point(roms)
+            if primary is not None:
+                for f in roms:
+                    if f.path != primary.path:
+                        actions.append(_action(
+                            "hide", path=str(dest_dir / f.path.name),
+                            why=f"data file for {primary.path.name}"))
 
     # --- README-derived manual steps (never auto-run) --------------------
     hints = item.hints

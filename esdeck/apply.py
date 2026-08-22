@@ -9,12 +9,13 @@ did not write.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import shutil
 import zipfile
 from pathlib import Path
 
-SAFE_TYPES = {"mkdir", "copy", "copy_tree", "extract", "m3u"}
+SAFE_TYPES = {"mkdir", "copy", "copy_tree", "extract", "m3u", "hide"}
 INERT_TYPES = {"manual", "suggested_command", "make_launcher"}
 
 
@@ -26,6 +27,25 @@ class Result:
 
     def __str__(self) -> str:
         return f"{len(self.done)} applied, {len(self.skipped)} skipped, {len(self.errors)} errors"
+
+
+FILE_ATTRIBUTE_HIDDEN = 0x02
+
+
+def set_hidden(path: Path) -> bool:
+    """Mark a file or folder hidden so ES-DE skips it (ShowHiddenFiles=false).
+
+    ES-DE lists every file matching a system extension, and psx accepts .bin,
+    .cue and .m3u alike - so a four-disc game shows up nine times. Hiding the
+    parts that are not the entry point leaves exactly one launchable item.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        return bool(ctypes.windll.kernel32.SetFileAttributesW(str(path),
+                                                              FILE_ATTRIBUTE_HIDDEN))
+    except (AttributeError, OSError):
+        return False
 
 
 def _extract_zip(src: Path, dst: Path) -> int:
@@ -102,6 +122,12 @@ def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = No
                 if not dry_run:
                     dst.mkdir(parents=True, exist_ok=True)
                     _extract_zip(src, dst)
+
+            elif kind == "hide":
+                p = Path(a["path"]); guard(p)
+                log(f"  hide   {p.name}  ({a.get('why', '')})")
+                if not dry_run and p.exists():
+                    set_hidden(p)
 
             elif kind == "m3u":
                 p = Path(a["path"]); guard(p)

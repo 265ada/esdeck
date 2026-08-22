@@ -104,6 +104,11 @@ which system actually owns an extension. Extensions the curated table has never 
 
 Behaviour worth knowing:
 
+- **One entry per game, not per file.** ES-DE lists every file whose extension a system
+  claims, and `psx` claims `.bin`, `.cue` *and* `.m3u` - so a four-disc game would appear
+  nine times. esdeck puts the discs in a subfolder, writes the `.m3u` beside it, and marks
+  the subfolder hidden; single-disc games get the `.bin` hidden next to its `.cue`. This
+  needs ES-DE's `ShowHiddenFiles` off, which `esdeck link` sets for you.
 - **Multi-disc sets get an `.m3u`** so ES-DE shows one entry. This works whether the discs are
   files in one folder or, as they usually arrive, four sibling folders named
   `Game (USA) (Disc 1)` … `(Disc 4)` - those are merged into a single game.
