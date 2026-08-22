@@ -90,6 +90,16 @@ def find_es_de() -> Path | None:
     return Path(found) if found else None
 
 
+def es_de_running() -> bool:
+    """ES-DE overwrites its settings file on exit, so edits need it stopped."""
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq ES-DE.exe", "/NH"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "ES-DE.exe" in out.stdout
+
+
 def make_rom_tree(cfg: Config, *, dry_run: bool = True, log=print) -> list[Path]:
     """Create <ROMs>/<system>/ for the enabled systems (all of them by default)."""
     root = Path(cfg.rom_dir)

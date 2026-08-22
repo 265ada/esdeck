@@ -69,6 +69,46 @@ def read_es_settings(es_config_dir: Path) -> dict:
     return out
 
 
+def es_settings_path(es_config_dir: Path) -> Path:
+    """Where ES-DE keeps es_settings.xml (it moved into settings/ in ES-DE 3)."""
+    nested = Path(es_config_dir) / "settings" / "es_settings.xml"
+    flat = Path(es_config_dir) / "es_settings.xml"
+    return nested if nested.is_file() or not flat.is_file() else flat
+
+
+def write_es_settings(es_config_dir: Path, values: dict, *, dry_run: bool = False) -> list[str]:
+    """Set values in es_settings.xml in place, keeping every other line intact.
+
+    ES-DE rewrites this file when it exits, so it must not be running.
+    Returns a description of each change made.
+    """
+    path = es_settings_path(Path(es_config_dir))
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} - launch ES-DE once so it writes its settings")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    changes = []
+
+    for name, value in values.items():
+        pattern = re.compile(rf'(<\w+\s+name="{re.escape(name)}"\s+value=")([^"]*)(")')
+        m = pattern.search(text)
+        if not m:
+            changes.append(f"{name}: not present in es_settings.xml, skipped")
+            continue
+        if m.group(2) == value:
+            changes.append(f"{name}: already {value!r}")
+            continue
+        changes.append(f"{name}: {m.group(2)!r} -> {value!r}")
+        text = text[:m.start()] + m.group(1) + value + m.group(3) + text[m.end():]
+
+    if not dry_run:
+        backup = path.with_suffix(".xml.esdeck-backup")
+        if not backup.exists():
+            backup.write_text(path.read_text(encoding="utf-8", errors="replace"),
+                              encoding="utf-8")
+        path.write_text(text, encoding="utf-8")
+    return changes
+
+
 def discover() -> Config:
     """Best-effort autodetect for a fresh machine."""
     es_dir = default_es_config_dir()

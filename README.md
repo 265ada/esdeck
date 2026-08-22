@@ -41,6 +41,10 @@ esdeck plan D:\incoming
 esdeck apply esdeck-plan.json --yes
 ```
 
+```bash
+esdeck link --yes
+```
+
 `plan` writes `esdeck-plan.json` and changes nothing. `apply` without `--yes` is a dry run. Only
 `apply --yes` touches the disk.
 
@@ -103,6 +107,27 @@ Other safety properties, all covered by tests:
 - Zip extraction rejects path traversal (zip-slip).
 - Prose like `2. Run setup.exe` is recorded as a *step*, not as a command.
 
+## Making ES-DE actually see the library
+
+Two steps trip people up on every new machine, so esdeck does both:
+
+**`esdeck link`** writes your ROM directory into ES-DE's own `es_settings.xml`.
+ES-DE defaults to `~/ROMs`, so a library on another drive shows up as zero systems until
+this is set. The edit is surgical - one attribute, every other line untouched, with a
+one-time `.esdeck-backup` alongside. ES-DE rewrites that file when it exits, so `link`
+refuses to run while ES-DE is open.
+
+**`esdeck launchers`** solves the PC-game gap: ES-DE's `windows` system only accepts
+`.bat` and `.lnk`, so a game installed into a folder is invisible no matter what is in it.
+This finds the real executable - skipping `unins*`, `vcredist`, `dxsetup` and friends,
+preferring shallow and obviously-named ones - and writes a small `.bat` that runs the game
+from its own directory. When several executables are plausible it lists them and asks for
+`--exe` rather than guessing.
+
+```bash
+esdeck launchers --yes
+```
+
 ## Multiple computers
 
 Machine-specific paths live in `~/.esdeck/config.json` and are never shared. Everything else
@@ -130,6 +155,8 @@ esdeck profile import --file esdeck-profile.json
 | `esdeck scan <dir>` | Show what esdeck thinks each dropped game is, and why |
 | `esdeck plan <dir>` | Write a reviewable `esdeck-plan.json` |
 | `esdeck apply <plan>` | Execute the safe half of a plan (dry run by default) |
+| `esdeck launchers` | Create `.bat` launchers so ES-DE can see installed PC games |
+| `esdeck link` | Point ES-DE's own `ROMDirectory` at your esdeck library |
 | `esdeck profile export/import` | Move settings between computers |
 | `esdeck doctor` | Check this machine's setup |
 

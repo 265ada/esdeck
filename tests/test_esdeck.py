@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import config, plan, readme_parse, scan, systems  # noqa: E402
+from esdeck import config, launcher, plan, readme_parse, scan, systems  # noqa: E402
 
 
 def touch(p: Path, size: int = 64) -> Path:
@@ -262,6 +262,101 @@ class TestConfigProfile(unittest.TestCase):
             got = config.read_es_settings(Path(td))
             self.assertEqual(got["ROMDirectory"], "D:\\ROMs")
             self.assertEqual(got["VSync"], "true")
+
+
+class TestLauncher(unittest.TestCase):
+    """ES-DE's windows system only sees .bat/.lnk, so folders need a launcher."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.roms = Path(self.td.name) / "ROMs"
+        self.install = self.roms / "windows"
+        self.game = self.install / "Space Blaster"
+        (self.game / "Game Files").mkdir(parents=True)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_ignores_installer_and_redist_executables(self):
+        touch(self.game / "Game Files" / "game.exe", 5000)
+        touch(self.game / "unins000.exe", 9000)
+        touch(self.game / "vcredist_x64.exe", 9000)
+        found = launcher.find_executables(self.game)
+        self.assertEqual([p.name for p in found], ["game.exe"])
+
+    def test_prefers_shallow_and_likely_named(self):
+        touch(self.game / "Game Files" / "engine_worker.exe", 9000)
+        touch(self.game / "play.exe", 100)
+        self.assertEqual(launcher.find_executables(self.game)[0].name, "play.exe")
+
+    def test_writes_bat_that_runs_from_the_game_directory(self):
+        exe = touch(self.game / "Game Files" / "game.exe")
+        games = launcher.scan_install_dir(self.install, self.roms)
+        self.assertEqual(len(games), 1)
+        launcher.write_launcher(games[0]["dest"], exe)
+        bat = self.install / "Space Blaster.bat"
+        self.assertTrue(bat.is_file())
+        text = bat.read_text(encoding="utf-8")
+        self.assertIn(str(exe.parent), text)
+        self.assertIn(str(exe), text)
+
+    def test_existing_launcher_is_not_clobbered(self):
+        exe = touch(self.game / "game.exe")
+        dest = self.install / "Space Blaster.bat"
+        dest.write_text("mine", encoding="utf-8")
+        launcher.write_launcher(dest, exe)
+        self.assertEqual(dest.read_text(encoding="utf-8"), "mine")
+
+    def test_folder_without_executable_reports_no_candidates(self):
+        games = launcher.scan_install_dir(self.install, self.roms)
+        self.assertEqual(games[0]["candidates"], [])
+
+
+class TestEsSettings(unittest.TestCase):
+    XML = ('<?xml version="1.0"?>\n'
+           '<string name="ROMDirectory" value="" />\n'
+           '<string name="MediaDirectory" value="" />\n'
+           '<bool name="VSync" value="true" />\n')
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.es = Path(self.td.name) / "ES-DE"
+        (self.es / "settings").mkdir(parents=True)
+        self.path = self.es / "settings" / "es_settings.xml"
+        self.path.write_text(self.XML, encoding="utf-8")
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_sets_value_and_leaves_other_lines_alone(self):
+        config.write_es_settings(self.es, {"ROMDirectory": r"D:\ROMs"})
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn('name="ROMDirectory" value="D:\\ROMs"', text)
+        self.assertIn('name="VSync" value="true"', text)
+        self.assertEqual(len(text.splitlines()), 4)
+
+    def test_makes_a_backup_once(self):
+        config.write_es_settings(self.es, {"ROMDirectory": r"D:\ROMs"})
+        backup = self.path.with_suffix(".xml.esdeck-backup")
+        self.assertEqual(backup.read_text(encoding="utf-8"), self.XML)
+        config.write_es_settings(self.es, {"ROMDirectory": r"E:\Other"})
+        self.assertEqual(backup.read_text(encoding="utf-8"), self.XML)
+
+    def test_dry_run_changes_nothing(self):
+        changes = config.write_es_settings(self.es, {"ROMDirectory": r"D:\ROMs"},
+                                           dry_run=True)
+        self.assertTrue(any("ROMDirectory" in c for c in changes))
+        self.assertEqual(self.path.read_text(encoding="utf-8"), self.XML)
+
+    def test_unknown_setting_is_reported_not_invented(self):
+        changes = config.write_es_settings(self.es, {"NoSuchSetting": "x"})
+        self.assertTrue(any("not present" in c for c in changes))
+        self.assertNotIn("NoSuchSetting", self.path.read_text(encoding="utf-8"))
+
+    def test_missing_file_raises(self):
+        self.path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            config.write_es_settings(self.es, {"ROMDirectory": "x"})
 
 
 class TestCLI(ScanFixture):

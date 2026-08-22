@@ -5,6 +5,8 @@
     esdeck scan <dir>      show what esdeck thinks each dropped game is
     esdeck plan <dir>      write a reviewable plan.json
     esdeck apply <plan>    execute the safe half of a plan
+    esdeck launchers       create .bat launchers for installed PC games
+    esdeck link            point ES-DE at esdeck's ROM directory
     esdeck profile         export/import machine-independent settings
     esdeck doctor          check this machine's setup
 """
@@ -17,7 +19,7 @@ import sys
 from pathlib import Path
 
 from . import apply as apply_mod
-from . import bootstrap, config, plan as plan_mod, scan as scan_mod
+from . import bootstrap, config, launcher, plan as plan_mod, scan as scan_mod
 from .systems import BY_KEY
 
 DEFAULT_PLAN = "esdeck-plan.json"
@@ -159,6 +161,63 @@ def cmd_apply(args) -> int:
     return 1 if failed else 0
 
 
+# ---------------------------------------------------------------- launchers
+def cmd_launchers(args) -> int:
+    """Give installed PC games a .bat so ES-DE's windows system can see them."""
+    cfg = config.load()
+    games = launcher.scan_install_dir(Path(cfg.install_dir), Path(cfg.rom_dir))
+    if not games:
+        _p(f"No installed PC game folders under {cfg.install_dir}")
+        return 0
+
+    made = 0
+    for g in games:
+        if g["has_launcher"] and not args.overwrite:
+            _p(f"  ok     {g['name']}: launcher already present")
+            continue
+        if not g["candidates"]:
+            _p(f"  SKIP   {g['name']}: no game .exe found in {g['folder']}")
+            continue
+        if len(g["candidates"]) > 1 and not args.first:
+            _p(f"  ?      {g['name']}: {len(g['candidates'])} candidates, pick one with --exe")
+            for c in g["candidates"][:5]:
+                _p(f"           {c}")
+            continue
+        exe = Path(args.exe) if args.exe else g["candidates"][0]
+        _p(f"  make   {launcher.write_launcher(g['dest'], exe, dry_run=not args.yes, overwrite=args.overwrite)}")
+        made += 1
+
+    if made and not args.yes:
+        _p("\nDRY RUN. Re-run with --yes to write the launchers.")
+    return 0
+
+
+# --------------------------------------------------------------------- link
+def cmd_link(args) -> int:
+    """Point ES-DE's own settings at the library esdeck manages."""
+    cfg = config.load()
+    if bootstrap.es_de_running():
+        _p("ES-DE is running - it rewrites es_settings.xml on exit, which would")
+        _p("discard these changes. Quit ES-DE first, then re-run.")
+        return 2
+    values = {"ROMDirectory": cfg.rom_dir}
+    if cfg.media_dir:
+        values["MediaDirectory"] = cfg.media_dir
+    try:
+        changes = config.write_es_settings(Path(cfg.es_config_dir), values,
+                                           dry_run=not args.yes)
+    except FileNotFoundError as exc:
+        _p(f"error: {exc}")
+        return 2
+    for c in changes:
+        _p(f"  {c}")
+    if not args.yes:
+        _p("\nDRY RUN. Re-run with --yes to write es_settings.xml.")
+    else:
+        _p(f"\nES-DE will now read games from {cfg.rom_dir}. Restart ES-DE to pick it up.")
+    return 0
+
+
 # ------------------------------------------------------------------ profile
 def cmd_profile(args) -> int:
     cfg = config.load()
@@ -255,6 +314,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unsafe-any-path", action="store_true",
                    help="disable the write-outside-ROM-dir guard")
     p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("launchers", help="create .bat launchers for installed PC games")
+    p.add_argument("--yes", action="store_true", help="write (default is a dry run)")
+    p.add_argument("--exe", help="use this executable instead of the detected one")
+    p.add_argument("--first", action="store_true", help="accept the best guess when ambiguous")
+    p.add_argument("--overwrite", action="store_true")
+    p.set_defaults(func=cmd_launchers)
+
+    p = sub.add_parser("link", help="point ES-DE's settings at esdeck's ROM directory")
+    p.add_argument("--yes", action="store_true", help="write (default is a dry run)")
+    p.set_defaults(func=cmd_link)
 
     p = sub.add_parser("profile", help="share settings between computers")
     p.add_argument("action", choices=("export", "import"))

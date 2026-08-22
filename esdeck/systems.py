@@ -54,7 +54,7 @@ SYSTEMS: tuple[System, ...] = (
     System("arcade", "Arcade", (), ("mame", "fbneo", "fba")),
     System("dos", "MS-DOS", (".dosz",), ("msdos", "ms-dos", "pc")),
     System("scummvm", "ScummVM", (".scummvm",), ("scumm",)),
-    System("windows", "Windows / PC", (".lnk", ".url"), ("pc games", "win", "pcwindows")),
+    System("windows", "Windows / PC", (".lnk", ".bat"), ("pc games", "win", "pcwindows")),
     System("ports", "Ports", (), ()),
 )
 
