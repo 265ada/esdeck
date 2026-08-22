@@ -52,5 +52,6 @@ echo.
 echo.
 echo  Done. Press F5 in ES-DE to see the new games.
 echo.
-pause
+echo  Press any key to close this window.
+pause >nul
 endlocal

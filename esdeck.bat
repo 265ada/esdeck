@@ -14,6 +14,7 @@ rem    --all-emulators   also install Dolphin, PCSX2, DuckStation, PPSSPP
 rem    --repair          reinstall ES-DE/RetroArch over an existing install
 rem    --clean           delete Incoming copies once verified in the library
 rem    --setup           force the full first-run setup again
+rem    --no-pause        do not wait for a key at the end (for scripts)
 rem ===========================================================================
 setlocal enabledelayedexpansion
 title esdeck
@@ -26,6 +27,7 @@ set "OPT_ALLEMU="
 set "OPT_REPAIR="
 set "OPT_CLEAN="
 set "OPT_SETUP="
+set "OPT_NOPAUSE="
 for %%a in (%*) do (
     set "ARG=%%~a"
     if /i "!ARG!"=="--no-cores"      set "OPT_NOCORES=1"
@@ -34,8 +36,11 @@ for %%a in (%*) do (
     if /i "!ARG!"=="--repair"        set "OPT_REPAIR=1"
     if /i "!ARG!"=="--clean"         set "OPT_CLEAN=1"
     if /i "!ARG!"=="--setup"         set "OPT_SETUP=1"
+    if /i "!ARG!"=="--no-pause"      set "OPT_NOPAUSE=1"
     if not "!ARG:~0,2!"=="--" if not defined GAMEROOT set "GAMEROOT=!ARG!"
 )
+rem A window that closes on its own takes the error message with it, so
+rem every exit below waits for a key unless --no-pause was given.
 if defined GAMEROOT set "UNATTENDED=1"
 
 echo.
@@ -232,5 +237,8 @@ echo  ===========================================================
 echo    Done. Start ES-DE to play - press F5 in it to refresh.
 echo  ===========================================================
 echo.
-if not defined UNATTENDED pause
+if not defined OPT_NOPAUSE (
+    echo  Press any key to close this window.
+    pause >nul
+)
 endlocal

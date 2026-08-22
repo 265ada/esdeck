@@ -6,6 +6,20 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.4.2] - 2026-08-22
+
+### Fixed
+- **esdeck.bat died instantly on any machine that downloaded it from GitHub**,
+  with "The system cannot find the batch label specified - sort". Git was
+  configured to normalise line endings, so the committed file - and therefore
+  the ZIP download - was LF only, and cmd.exe cannot resolve `goto` in a batch
+  file without CRLF. It worked locally because checkout converted the endings
+  back, which is exactly why it went unnoticed. `.gitattributes` now marks
+  `*.bat` as `-text`, so the bytes in the repo are the bytes you download.
+- **Batch windows no longer close on their own.** Every exit path waits for a
+  key, so an error can actually be read instead of vanishing with the window.
+  `--no-pause` opts out for scripted runs.
+
 ## [0.4.1] - 2026-08-22
 
 ### Fixed

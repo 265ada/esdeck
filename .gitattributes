@@ -1,0 +1,8 @@
+# Batch files must keep CRLF line endings. With LF, cmd.exe fails with
+# "The system cannot find the batch label specified" on any goto.
+# -text stops git normalising them, so the bytes in the repo are the bytes
+# GitHub serves in the ZIP download.
+*.bat -text
+
+# Everything else is normal text.
+* text=auto
