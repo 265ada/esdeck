@@ -73,10 +73,26 @@ def _zip_looks_like_rom(path: Path, system: str | None) -> bool:
         Path(n).suffix.lower() in (".exe", ".msi") for n in names)
 
 
-def build(item: ScanItem, cfg: Config) -> dict:
+def build(item: ScanItem, cfg: Config, *, staging: Path | None = None) -> dict:
     warnings: list[str] = []
     actions: list[dict] = []
     system = item.system
+
+    # A collection archive is unpacked to a staging folder and its contents
+    # scanned as individual games, rather than filed as one giant "game".
+    if item.collection and staging is not None:
+        for f in item.by_kind("archive"):
+            actions.append(_action("extract", src=str(f.path),
+                                   dst=str(Path(staging) / item.name)))
+        return {
+            "version": PLAN_VERSION, "name": item.name, "source": str(item.root),
+            "system": system, "confidence": item.confidence,
+            "candidates": item.candidates, "reasons": item.reasons,
+            "readme": None, "stage": True,
+            "warnings": [f"{item.name} holds many games - unpacking it, then "
+                         f"sorting each game separately."],
+            "actions": actions,
+        }
 
     if not system:
         warnings.append(
@@ -219,9 +235,9 @@ def build(item: ScanItem, cfg: Config) -> dict:
     }
 
 
-def build_all(items, cfg: Config) -> dict:
+def build_all(items, cfg: Config, *, staging: Path | None = None) -> dict:
     return {"version": PLAN_VERSION, "rom_dir": cfg.rom_dir,
-            "plans": [build(i, cfg) for i in items]}
+            "plans": [build(i, cfg, staging=staging) for i in items]}
 
 
 def summarize(plan: dict) -> str:

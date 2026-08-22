@@ -8,6 +8,7 @@
     esdeck sync            do all of the above in one go (the usual command)
     esdeck cores           install RetroArch cores for your systems
     esdeck bios            check the BIOS files your systems need
+    esdeck emulators       show or set which emulator ES-DE uses
     esdeck tidy            repair an existing library and find duplicates
     esdeck clean           free space: remove drop-folder copies already filed
     esdeck launchers       create .bat launchers for installed PC games
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -27,6 +29,7 @@ from . import apply as apply_mod
 from . import bios as bios_mod
 from . import bootstrap, clean as clean_mod, config, cores as cores_mod
 from . import drives as drives_mod
+from . import emulators as emu_mod
 from . import launcher, plan as plan_mod
 from . import scan as scan_mod
 from . import tidy as tidy_mod
@@ -103,7 +106,9 @@ def _describe(item) -> None:
         if h.commands:
             bits.append(f"{len(h.commands)} suggested command(s)")
         _p(f"       readme {h.source}: " + ("; ".join(bits) if bits else "no actionable hints"))
-    for w in bios_mod.warn_lines(item.system) if item.system else []:
+    _es = Path(config.load().es_config_dir)
+    for w in (bios_mod.warn_lines(item.system, es_config_dir=_es)
+              if item.system else []):
         _p(f"       BIOS: {w}")
 
 
@@ -247,21 +252,58 @@ def cmd_sync(args) -> int:
 
     # 2. File them into the library.
     _p("\n[2/4] Filing games into the library")
-    bundle = plan_mod.build_all(items, cfg)
+    staging = Path(cfg.rom_dir) / ".esdeck-staging"
+    bundle = plan_mod.build_all(items, cfg, staging=staging)
     roots = [cfg.rom_dir, cfg.install_dir]
     manual: list[str] = []
     unresolved, errors = [], 0
-    for pl in bundle["plans"]:
-        if not pl.get("system"):
-            unresolved.append(pl["name"])
-            continue
+    staged = False
+
+    def run_plan(pl, indent="  "):
+        nonlocal errors
         res = apply_mod.apply_plan(pl, dry_run=not args.yes, roots=roots,
                                    overwrite=args.overwrite, log=lambda *a: None)
         errors += len(res.errors)
-        _p(f"  {pl['name']} -> {pl['system']}: {res}")
+        _p(f"{indent}{pl['name']} -> {pl['system']}: {res}")
         for e in res.errors:
-            _p(f"    ERROR {e}")
+            _p(f"{indent}  ERROR {e}")
         manual.extend(f"[{pl['name']}] {s}" for s in apply_mod.manual_steps(pl))
+
+    for pl in bundle["plans"]:
+        if pl.get("stage"):
+            _p(f"  {pl['name']}: collection - unpacking to sort each game separately")
+            if args.yes:
+                res = apply_mod.apply_plan(pl, dry_run=False, roots=roots,
+                                           overwrite=args.overwrite,
+                                           log=lambda *a: None)
+                errors += len(res.errors)
+                for e in res.errors:
+                    _p(f"    ERROR {e}")
+                staged = True
+            continue
+        if not pl.get("system"):
+            unresolved.append(pl["name"])
+            continue
+        run_plan(pl)
+
+    # Second pass: whatever came out of a collection is scanned and sorted as
+    # individual games, so a 3000-ROM set becomes 3000 entries, not one.
+    if staged and staging.is_dir():
+        inner = scan_mod.scan(staging)
+        _p(f"\n  unpacked {len(inner)} item(s) - sorting each one")
+        inner_bundle = plan_mod.build_all(inner, cfg)
+        placed = 0
+        for pl in inner_bundle["plans"]:
+            if not pl.get("system"):
+                unresolved.append(pl["name"])
+                continue
+            res = apply_mod.apply_plan(pl, dry_run=False, roots=roots,
+                                       overwrite=args.overwrite, log=lambda *a: None)
+            errors += len(res.errors)
+            placed += 1
+            manual.extend(f"[{pl['name']}] {s}" for s in apply_mod.manual_steps(pl))
+        _p(f"  filed {placed} game(s) from the collection")
+        shutil.rmtree(staging, ignore_errors=True)
 
     # 3. Cores, so the new systems can actually launch.
     if args.no_cores:
@@ -301,10 +343,22 @@ def cmd_sync(args) -> int:
         for c in report.mismatched + report.unmatched:
             _p(f"  kept   {c.source.name}: {c.reason}")
 
+    # Emulator suggestions: when the emulator in use needs a BIOS you lack,
+    # another one in ES-DE's own list may not.
+    es_dir = Path(cfg.es_config_dir)
+    for key in sorted({pl.get("system") for pl in bundle["plans"] if pl.get("system")}):
+        alt = emu_mod.suggest(key, es_dir)
+        if alt:
+            in_use = emu_mod.effective(key, es_dir)
+            _p("")
+            _p(f"{key}: {in_use.label} needs a BIOS you do not have.")
+            _p(f"  {alt.label} plays the same games without one. To switch:")
+            _p(f"    esdeck emulators --system {key} --emulator \"{alt.label}\" --yes")
+
     # BIOS: say so before the user wonders why a game will not start.
     bios_problems = []
     for key in sorted({pl.get("system") for pl in bundle["plans"] if pl.get("system")}):
-        for w in bios_mod.warn_lines(key):
+        for w in bios_mod.warn_lines(key, es_config_dir=es_dir):
             bios_problems.append(f"{key}: {w}")
     if bios_problems:
         _p("\nBIOS needed - these will most likely not start yet:")
@@ -327,6 +381,61 @@ def cmd_sync(args) -> int:
     else:
         _p("\nDone. Restart ES-DE (or press F5 in it) to see the new games.")
     return 1 if errors else 0
+
+
+# ---------------------------------------------------------------- emulators
+def cmd_emulators(args) -> int:
+    """Show or set which emulator ES-DE uses for a system."""
+    cfg = config.load()
+    es_dir = Path(cfg.es_config_dir)
+
+    if args.system and args.emulator:
+        if bootstrap.es_de_running():
+            _p("ES-DE is running - it rewrites gamelist.xml on exit. Quit it first.")
+            return 2
+        available = {c.label for c in emu_mod.choices_for(args.system)}
+        if available and args.emulator not in available:
+            _p(f"ES-DE has no emulator called {args.emulator!r} for {args.system}.")
+            _p("Choices: " + ", ".join(sorted(available)))
+            return 2
+        _p(emu_mod.set_emulator(es_dir, args.system, args.emulator,
+                                dry_run=not args.yes))
+        if args.yes:
+            cfg.emulators[args.system] = args.emulator
+            config.save(cfg)
+            _p(f"Recorded in {config.CONFIG_PATH} - travels with 'esdeck profile'.")
+        else:
+            _p("DRY RUN. Re-run with --yes to apply.")
+        return 0
+
+    if args.apply:
+        if bootstrap.es_de_running():
+            _p("ES-DE is running - quit it first.")
+            return 2
+        _p(f"Applying {len(cfg.emulators)} recorded choice(s):")
+        emu_mod.apply_choices(es_dir, cfg.emulators, dry_run=not args.yes, log=_p)
+        if not args.yes:
+            _p("")
+            _p("DRY RUN. Re-run with --yes to apply.")
+        return 0
+
+    systems = [args.system] if args.system else sorted(
+        d.name for d in Path(cfg.rom_dir).iterdir()
+        if d.is_dir() and any(d.iterdir())) if Path(cfg.rom_dir).is_dir() else []
+    for key in systems:
+        options = emu_mod.choices_for(key)
+        if not options:
+            continue
+        active = emu_mod.current(es_dir, key) or options[0].label + "  (ES-DE default)"
+        _p(f"{key}: using {active}")
+        for c in options:
+            mark = "*" if c.label == emu_mod.current(es_dir, key) else " "
+            _p(f"  {mark} {c.describe()}")
+        s = emu_mod.suggest(key, es_dir)
+        if s:
+            _p(f"  -> suggestion: {s.label} avoids the BIOS this system needs")
+            _p(f"     esdeck emulators --system {key} --emulator \"{s.label}\" --yes")
+    return 0
 
 
 # -------------------------------------------------------------------- clean
@@ -454,7 +563,7 @@ def cmd_bios(args) -> int:
     _p(f"BIOS folder: {sysdir}\n")
     problems = 0
     for key in keys:
-        statuses = bios_mod.check_system(key)
+        statuses = bios_mod.check_system(key, es_config_dir=Path(cfg.es_config_dir))
         if not statuses:
             continue
         blockers = bios_mod.blocking(statuses)
@@ -464,7 +573,7 @@ def cmd_bios(args) -> int:
             if args.all or st.state != "missing (optional)":
                 note = f"  ({st.bios.note})" if st.bios.note else ""
                 _p(f"    {st.state:20} {st.bios.name}{note}")
-        for w in bios_mod.warn_lines(key):
+        for w in bios_mod.warn_lines(key, es_config_dir=Path(cfg.es_config_dir)):
             _p(f"    -> {w}")
 
     if problems:
@@ -610,7 +719,8 @@ def cmd_doctor(args) -> int:
         missing = []
         for d in sorted(Path(cfg.rom_dir).iterdir()):
             if d.is_dir() and any(d.iterdir()):
-                missing.extend(bios_mod.blocking(bios_mod.check_system(d.name)))
+                missing.extend(bios_mod.blocking(bios_mod.check_system(
+                    d.name, es_config_dir=Path(cfg.es_config_dir))))
         check(not missing,
               f"BIOS files present for your systems ({len(missing)} missing)"
               if missing else "BIOS files present for your systems",
@@ -663,6 +773,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unsafe-any-path", action="store_true",
                    help="disable the write-outside-ROM-dir guard")
     p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("emulators", help="show or set the emulator ES-DE uses")
+    p.add_argument("--system")
+    p.add_argument("--emulator")
+    p.add_argument("--apply", action="store_true",
+                   help="apply every choice recorded in the config")
+    p.add_argument("--yes", action="store_true")
+    p.set_defaults(func=cmd_emulators)
 
     p = sub.add_parser("clean", help="delete drop-folder copies already in the library")
     p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")

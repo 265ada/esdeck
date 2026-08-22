@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import archives, bios, clean, config, cores, drives, esde  # noqa: E402
+from esdeck import archives, bios, clean, config, cores, drives  # noqa: E402
+from esdeck import emulators, esde  # noqa: E402
 from esdeck import launcher, plan  # noqa: E402
 from esdeck import readme_parse  # noqa: E402
 from esdeck import scan, tidy  # noqa: E402
@@ -628,14 +629,16 @@ class TestCores(unittest.TestCase):
     def test_core_comes_from_es_de_launch_command(self):
         """ES-DE runs the first <command>; installing any other core fails."""
         sysdef = esde.EsSystem("psx", "Sony PlayStation", {".cue"}, [
-            r"%EMULATOR_RETROARCH% -L %CORE_RETROARCH%\mednafen_psx_libretro.dll %ROM%",
-            r"%EMULATOR_RETROARCH% -L %CORE_RETROARCH%\swanstation_libretro.dll %ROM%",
+            ("Beetle PSX",
+             r"%EMULATOR_RETROARCH% -L %CORE_RETROARCH%\mednafen_psx_libretro.dll %ROM%"),
+            ("SwanStation",
+             r"%EMULATOR_RETROARCH% -L %CORE_RETROARCH%\swanstation_libretro.dll %ROM%"),
         ])
         self.assertEqual(sysdef.default_core, "mednafen_psx")
 
     def test_standalone_emulator_command_has_no_core(self):
         sysdef = esde.EsSystem("ps3", "PS3", set(),
-                               [r"%EMULATOR_RPCS3% --no-gui %ROM%"])
+                               [("RPCS3", r"%EMULATOR_RPCS3% --no-gui %ROM%")])
         self.assertIsNone(sysdef.default_core)
 
     def test_unavailable_cores_are_never_requested(self):
@@ -960,6 +963,139 @@ class TestClean(unittest.TestCase):
         clean.prune_empty_dirs([self.drop], dry_run=False, log=lambda *a: None)
         self.assertFalse(nested.exists())
         self.assertTrue(self.drop.is_dir())
+
+
+class TestCollections(ScanFixture):
+    """A 3000-ROM set is 3000 games, and one stray .exe decides nothing."""
+
+    def _zipped_rom(self, folder: Path, title: str, ext: str = ".md"):
+        folder.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(folder / f"{title}.zip", "w") as z:
+            z.writestr(f"{title}{ext}", "x" * 64)
+
+    def test_archive_of_many_games_is_a_collection(self):
+        d = self.src / "MEGADRIVE_ROMS"
+        d.mkdir(parents=True)
+        inner = self.src / "build"
+        for n in range(8):
+            self._zipped_rom(inner, f"Game {n}")
+        with zipfile.ZipFile(d / "MEGADRIVE_ROMS.zip", "w") as z:
+            for p in inner.iterdir():
+                z.write(p, f"MEGADRIVE_ROMS/{p.name}")
+        for p in inner.iterdir():
+            p.unlink()
+        inner.rmdir()
+        item = self.items()["MEGADRIVE ROMS"]
+        self.assertTrue(item.collection)
+
+    def test_single_game_archive_is_not_a_collection(self):
+        self._zipped_rom(self.src, "Sonic")
+        self.assertFalse(self.items()["Sonic"].collection)
+
+    def test_collection_plan_stages_instead_of_filing(self):
+        d = self.src / "MEGADRIVE_ROMS"
+        d.mkdir(parents=True)
+        with zipfile.ZipFile(d / "MEGADRIVE_ROMS.zip", "w") as z:
+            for n in range(8):
+                z.writestr(f"Game {n}.md", "x" * 64)
+        item = self.items()["MEGADRIVE ROMS"]
+        pl = plan.build(item, self.cfg, staging=self.roms / ".staging")
+        self.assertTrue(pl.get("stage"))
+        self.assertTrue(any(a["type"] == "extract" for a in pl["actions"]))
+        self.assertFalse(any(a["type"] == "copy" for a in pl["actions"]))
+
+    def test_one_stray_exe_does_not_make_a_rom_set_a_windows_game(self):
+        """3259 ROMs and one installer is not a Windows game."""
+        d = self.src / "MEGADRIVE_ROMS"
+        d.mkdir(parents=True)
+        with zipfile.ZipFile(d / "MEGADRIVE_ROMS.zip", "w") as z:
+            for n in range(20):
+                z.writestr(f"Game {n}.md", "x" * 64)
+            z.writestr("readme_viewer.exe", "x")
+        self.assertEqual(self.items()["MEGADRIVE ROMS"].system, "megadrive")
+
+    def test_pc_game_archive_is_still_windows(self):
+        self.src.mkdir(parents=True, exist_ok=True)
+        p = self.src / "Space Blaster.zip"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("Game Files/game.exe", "x")
+            z.writestr("README.txt", "unzip and run game.exe")
+        self.assertEqual(self.items()["Space Blaster"].system, "windows")
+
+
+class TestFolderBeatsTitle(ScanFixture):
+    """A title containing a system word must not outrank the folder."""
+
+    def _zipped(self, folder: Path, title: str):
+        folder.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(folder / f"{title}.zip", "w") as z:
+            z.writestr(f"{title}.md", "x" * 64)
+
+    def test_game_named_after_another_system_stays_put(self):
+        d = self.src / "MEGADRIVE_ROMS_FULL_COLLECTION"
+        for title in ("Phantasy Star 3 - Generations of Doom",
+                      "Arrow Flash", "Censor C64 Picture Demo",
+                      "Gauntlet Arcade Version"):
+            self._zipped(d, title)
+        systems = {i.system for i in scan.scan(d)}
+        self.assertEqual(systems, {"megadrive"})
+
+    def test_title_hint_still_works_without_a_folder_hint(self):
+        touch(self.src / "Some PSX Game.pbp")
+        self.assertEqual(self.items()["Some PSX Game"].system, "psx")
+
+
+class TestEmulatorChoice(unittest.TestCase):
+    """ES-DE's default is not always the one that works without a BIOS."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.es = Path(self.td.name) / "ES-DE"
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_setting_creates_gamelist_with_the_label(self):
+        emulators.set_emulator(self.es, "psx", "SwanStation")
+        self.assertEqual(emulators.current(self.es, "psx"), "SwanStation")
+
+    def test_setting_again_replaces_rather_than_duplicates(self):
+        emulators.set_emulator(self.es, "psx", "SwanStation")
+        emulators.set_emulator(self.es, "psx", "PCSX ReARMed")
+        text = emulators.gamelist_path(self.es, "psx").read_text(encoding="utf-8")
+        self.assertEqual(text.count("<alternativeEmulator>"), 1)
+        self.assertEqual(emulators.current(self.es, "psx"), "PCSX ReARMed")
+
+    def test_existing_games_are_preserved(self):
+        path = emulators.gamelist_path(self.es, "psx")
+        path.parent.mkdir(parents=True)
+        path.write_text('<?xml version="1.0"?>\n<gameList>\n'
+                        '<game><path>./x.m3u</path></game>\n</gameList>\n',
+                        encoding="utf-8")
+        emulators.set_emulator(self.es, "psx", "SwanStation")
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("./x.m3u", text)
+        self.assertIn("SwanStation", text)
+
+    def test_dry_run_writes_nothing(self):
+        emulators.set_emulator(self.es, "psx", "SwanStation", dry_run=True)
+        self.assertFalse(emulators.gamelist_path(self.es, "psx").exists())
+
+    def test_no_override_reads_as_none(self):
+        self.assertIsNone(emulators.current(self.es, "psx"))
+
+    def test_choice_travels_in_the_profile(self):
+        """A working emulator pick should not be rediscovered on every PC."""
+        cfg = config.Config(rom_dir="D:/ROMs", emulators={"psx": "SwanStation"})
+        self.assertIn("emulators", config.profile_from(cfg))
+        merged = config.apply_profile(config.Config(rom_dir="E:/ROMs"),
+                                      config.profile_from(cfg))
+        self.assertEqual(merged.emulators["psx"], "SwanStation")
+        self.assertEqual(merged.rom_dir, "E:/ROMs")
+
+    def test_psx_default_is_swanstation(self):
+        self.assertEqual(emulators.DEFAULT_CHOICES["psx"], "SwanStation")
+        self.assertEqual(config.Config().emulators.get("psx"), "SwanStation")
 
 
 if __name__ == "__main__":

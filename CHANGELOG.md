@@ -1,0 +1,99 @@
+# Changelog
+
+All notable changes to esdeck. Newest first.
+
+The recurring theme: wherever esdeck had an opinion baked into a table, reading
+ES-DE's or RetroArch's own configuration instead turned out to be both more
+correct and more complete.
+
+## [0.3.0] - 2026-08-22
+
+### Added
+- **Collections are unpacked and sorted game by game.** A 3259-ROM Mega Drive
+  set was being filed as one unplayable library entry. An archive holding many
+  games is now extracted to a staging folder, each game inside is scanned and
+  filed on its own, and the staging folder is removed. Verified on a real
+  2.2 GB 47-part set: 3250 individual games.
+- **`esdeck.bat`** - one file that does everything. On a new PC it installs and
+  configures the whole setup; after that it sorts the Incoming folder. Replaces
+  `install.bat` and `Sort Games.bat`.
+- **`esdeck emulators`** - show or set which emulator ES-DE uses per system, and
+  suggest a BIOS-free alternative when the one in use needs firmware you do not
+  have. Suggestions now appear during `esdeck sync`.
+- **SwanStation is the default for PSX**, because ES-DE's default (Beetle PSX)
+  marks three BIOS files as required while SwanStation marks all of its firmware
+  optional. The choice is stored in esdeck's config, so `esdeck profile` carries
+  it to every other machine.
+- This changelog.
+
+### Fixed
+- **A collection of 3259 ROMs plus one stray `.exe` was filed under Windows.**
+  The installer vote fired on the mere presence of an executable; it now looks
+  at what an archive is mostly made of, and at whether it contains any games at
+  all.
+- **A game whose title contains a system word no longer escapes its folder.**
+  "Phantasy Star 3 - Generations of Doom" went to `doom`, "Arrow Flash" to
+  `flash`, "Censor C64 Picture Demo" to `c64`. Where a game sits now outranks
+  what it is called, and a README naming an emulator counts as an explicit
+  statement of intent.
+- BIOS checks follow the emulator actually in use rather than ES-DE's default,
+  so choosing SwanStation stops the PSX BIOS warning instead of leaving it
+  showing for a core that will never run.
+
+## [0.2.0] - 2026-08-22
+
+### Added
+- **Every archive format** via 7-Zip: `.zip .7z .rar .cab .arj .lzh .tar .gz .xz
+  .zst .wim` and more. Archives are opened during scanning, so a game inside a
+  `.7z` is identified - and its README read - without unpacking.
+- **Split archives** (`Game.part01.rar` .. `.part47`, `.7z.001`, `.zip.001`,
+  `.r00`, bare `.001`) are one game, not fifty. Only the first volume is opened;
+  7-Zip joins the rest. Reported size sums every volume.
+- **`esdeck clean`** frees the drop folder after sorting, deleting only files
+  proved identical to the library copy by full SHA-256. Dry run by default.
+- **`esdeck bios`** reports the firmware each system needs, verifies supplied
+  files by checksum, and warns at scan time so a game is never mysteriously
+  dead. Requirements come from RetroArch's core info files.
+- **`esdeck tidy`** repairs a library built by hand or by another tool, and
+  reports duplicate copies without ever deleting a game.
+- **`esdeck drives`** measures every drive and suggests where the library should
+  live, instead of assuming `D:`.
+- **`--repair`** reinstalls ES-DE/RetroArch over an existing install using
+  winget `--force`, backing up saves, states, bindings, playlists and `system/`
+  first. Uninstalling would have taken all of those with it.
+
+### Changed
+- Cores now come from ES-DE's own launch commands. A hand-written map had `psx`
+  on SwanStation while ES-DE calls Beetle PSX, which failed with "couldn't find
+  emulator core file". Fixed 11 wrong mappings and added 59 missing systems:
+  155 systems, 81 cores.
+- Every core is installed on first run. Previously a fresh machine got none,
+  because the "which cores do my systems need" question answers "none" when the
+  library is still empty.
+- One ES-DE entry per game. ES-DE lists every file whose extension a system
+  claims, and `psx` claims `.bin`, `.cue` and `.m3u` alike, so a four-disc game
+  appeared nine times. Discs now live in a hidden subfolder behind their `.m3u`.
+
+### Fixed
+- Cores ES-DE names but libretro does not build for Windows are skipped rather
+  than requested and 404ing.
+- `link --create` writes the element type ES-DE expects; `ShowHiddenFiles` is a
+  `<bool>`, and as a `<string>` it was silently ignored on fresh installs.
+
+## [0.1.0] - 2026-08-22
+
+### Added
+- Initial release: `scan` / `plan` / `apply` pipeline that classifies dropped
+  files, reads READMEs without obeying them, and files games into
+  `ROMs/<system>/` for ES-DE.
+- Disc images identified by reading their boot signature rather than trusting
+  an extension - ES-DE maps `.cue` to 73 systems and `.bin` to 122.
+- Multi-disc games merged into one entry with an `.m3u`, including the common
+  case of four sibling `(Disc N)` folders.
+- System list read from ES-DE's `es_systems.xml`, covering all 195 systems.
+- `bootstrap` installs ES-DE, RetroArch and 7-Zip via winget; `link` points
+  ES-DE at the library; `launchers` makes installed PC games visible.
+- `profile export/import` carries settings between computers without carrying
+  machine-specific paths.
+- README-derived instructions become reviewable actions that `apply` refuses to
+  execute, and writes are confined to the configured library folders.

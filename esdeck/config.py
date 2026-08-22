@@ -31,6 +31,10 @@ class Config:
     keep_source: bool = True         # copy, never move, by default
     make_m3u: bool = True
     systems_enabled: list[str] = field(default_factory=list)
+    #: {ES-DE system: emulator label}. Machine-independent, so it travels with
+    #: `esdeck profile` - a working emulator choice should not be re-discovered
+    #: on every new PC.
+    emulators: dict = field(default_factory=lambda: {"psx": "SwanStation"})
 
     def to_dict(self) -> dict:
         return asdict(self)

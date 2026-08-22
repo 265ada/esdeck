@@ -120,9 +120,23 @@ FALLBACK: dict[str, tuple[BiosFile, ...]] = {
 }
 
 
-def requirements_for(system: str) -> tuple[BiosFile, ...]:
-    """Firmware the given ES-DE system needs, via the core that runs it."""
-    core = cores_mod.core_for_system(system)
+def requirements_for(system: str, es_config_dir=None) -> tuple[BiosFile, ...]:
+    """Firmware the system needs, via the core that will actually run it.
+
+    If an alternative emulator has been chosen for the system, that is the core
+    whose requirements matter - SwanStation needs no BIOS where ES-DE's default
+    Beetle PSX needs three, and warning about the unused one is just wrong.
+    """
+    core = None
+    if es_config_dir:
+        try:
+            from . import emulators as emu
+            choice = emu.effective(system, es_config_dir)
+            if choice is not None:
+                core = choice.core
+        except Exception:                     # noqa: BLE001 - never block a check
+            core = None
+    core = core or cores_mod.core_for_system(system)
     if core:
         found = _core_requirements().get(core)
         if found:
@@ -164,10 +178,10 @@ class BiosStatus:
 
 
 def check_system(system: str, sysdir: Path | None = None, *,
-                 verify: bool = True) -> list[BiosStatus]:
+                 verify: bool = True, es_config_dir=None) -> list[BiosStatus]:
     sysdir = Path(sysdir) if sysdir else system_dir()
     out = []
-    for bios in requirements_for(system):
+    for bios in requirements_for(system, es_config_dir):
         present = ok = None
         if sysdir is None:
             present = False
@@ -213,9 +227,10 @@ def _combined(system: str, needed: list[BiosStatus]) -> BiosStatus:
     return BiosStatus(system, BiosFile(names, None, True, "any one of these"), False)
 
 
-def warn_lines(system: str, sysdir: Path | None = None) -> list[str]:
+def warn_lines(system: str, sysdir: Path | None = None,
+               es_config_dir=None) -> list[str]:
     """Plain-language warnings for one system, ready to print next to a game."""
-    problems = blocking(check_system(system, sysdir))
+    problems = blocking(check_system(system, sysdir, es_config_dir=es_config_dir))
     lines = []
     for s in problems:
         where = system_dir() or "RetroArch's system folder"

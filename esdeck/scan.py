@@ -53,6 +53,7 @@ class ScanItem:
     confidence: str = "low"      # high | medium | low
     reasons: list[str] = field(default_factory=list)
     archive_contents: dict = field(default_factory=dict)   # rel -> member names
+    collection: bool = False     # an archive holding many separate games
     opaque_archives: list[str] = field(default_factory=list)  # need 7-Zip to inspect
     unrecognized: bool = False   # nothing here looks like a game
 
@@ -74,6 +75,7 @@ class ScanItem:
             "files": [f.to_dict() for f in self.files],
             "hints": self.hints.to_dict() if self.hints else {},
             "opaque_archives": self.opaque_archives,
+            "collection": self.collection,
             "unrecognized": self.unrecognized,
         }
 
@@ -144,12 +146,19 @@ def _resolve_system(item: ScanItem) -> None:
         votes[key] = votes.get(key, 0) + weight
         item.reasons.append(f"{why} -> {key} (+{weight})")
 
-    # 1. Folder-name / parent-folder hint, e.g. incoming/PS2/Game Name/
-    for part in (item.name, item.root.name, item.root.parent.name):
+    # 1. Where a game sits says more than what it is called. A folder named
+    #    "MEGADRIVE_ROMS_FULL_COLLECTION" is deliberate; a title containing a
+    #    system word usually is not - "Phantasy Star 3: Generations of Doom" is
+    #    not a Doom game, and "Arrow Flash" is not a Flash game.
+    for part in (item.root.name, item.root.parent.name):
         hit = sysmod.system_from_hint(part)
         if hit:
-            vote(hit, 3, f"name hint {part!r}")
+            vote(hit, 4, f"folder {part!r}")
             break
+    else:
+        hit = sysmod.system_from_hint(item.name)
+        if hit:
+            vote(hit, 2, f"title mentions {hit}")
 
     # 2. Look inside disc images - the disc states what console it is, which
     #    beats every filename-based guess.
@@ -182,21 +191,45 @@ def _resolve_system(item: ScanItem) -> None:
         elif not sniffed:
             item.candidates = sorted(set(item.candidates) | set(cands[:8]))
 
-    # 4. README hints (emulator names) - weak, corroborating only.
+    # 4. A README naming an emulator is an explicit statement of intent, so it
+    #    weighs as much as a folder name - "run this in DOSBox" should beat a
+    #    folder that merely happens to be called DOOM.
     if item.hints:
         for key in item.hints.systems:
-            vote(key, 3, "readme mentions emulator")
+            vote(key, 4, "readme names an emulator")
 
     # 5. Contents of archives we could open - the payload is usually in there.
+    #
+    # What matters is what the archive is *mostly* made of. A ROM collection
+    # with 3259 games and one stray installer is not a Windows game, and an
+    # earlier version filed exactly that under "windows" because a single .exe
+    # was present at all.
     for rel, members in item.archive_contents.items():
-        exts = {Path(n).suffix.lower() for n in members}
-        if exts & set(sysmod.INSTALLER_EXTS):
-            vote("windows", 4, f"{rel} contains an installer/exe")
+        counts: dict[str, int] = {}
+        for n in members:
+            ext = Path(n).suffix.lower()
+            counts[ext] = counts.get(ext, 0) + 1
+        total = sum(counts.values()) or 1
+
+        installers = sum(counts.get(e, 0) for e in sysmod.INSTALLER_EXTS)
+        # .exe is listed as a valid extension by several ES-DE systems, so it
+        # must not count as both the installer and the game it rules out.
+        game_files = sum(c for ext, c in counts.items()
+                         if ext not in sysmod.INSTALLER_EXTS
+                         and (ext in sysmod.ARCHIVE_EXTS or sysmod.systems_for_ext(ext)))
+        if installers and not game_files:
+            vote("windows", 4, f"{rel} holds an executable and no ROMs")
             continue
-        for ext in exts:
+        if installers / total > 0.5:
+            vote("windows", 4, f"{rel} is mostly installers/executables")
+            continue
+
+        for ext, count in sorted(counts.items(), key=lambda kv: -kv[1]):
+            if count / total < 0.2:
+                continue          # a handful of stray files decides nothing
             cands = sysmod.systems_for_ext(ext)
             if len(cands) == 1:
-                vote(cands[0], 4, f"{rel} contains {ext}")
+                vote(cands[0], 4, f"{rel} is mostly {ext}")
             elif cands:
                 item.candidates = sorted(set(item.candidates) | set(cands))
 
@@ -314,7 +347,30 @@ def scan_item(root: Path) -> ScanItem:
             item.hints = _archive_readme(f.path, members)
 
     _resolve_system(item)
+    item.collection = _looks_like_collection(item)
     return item
+
+
+#: An archive holding at least this many game-ish files is a collection to be
+#: unpacked and sorted, not a single game to be filed.
+COLLECTION_MIN_GAMES = 5
+
+
+def _looks_like_collection(item: ScanItem) -> bool:
+    """True for an archive of many separate games rather than one game.
+
+    A 3000-ROM set must not become one library entry: it has to be unpacked and
+    each game sorted on its own, which is what the two-pass sync does.
+    """
+    for members in item.archive_contents.values():
+        games = 0
+        for n in members:
+            ext = Path(n).suffix.lower()
+            if ext in sysmod.ARCHIVE_EXTS or sysmod.systems_for_ext(ext):
+                games += 1
+        if games >= COLLECTION_MIN_GAMES:
+            return True
+    return False
 
 
 def should_split(folder: Path) -> bool:

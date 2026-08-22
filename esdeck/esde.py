@@ -34,7 +34,7 @@ class EsSystem:
     key: str                       # folder name, e.g. "psx"
     fullname: str = ""             # e.g. "Sony PlayStation"
     exts: set = field(default_factory=set)   # lowercase, with leading dot
-    commands: list = field(default_factory=list)   # launch commands, in order
+    commands: list = field(default_factory=list)   # (label, command) in ES-DE order
 
     @property
     def default_core(self) -> str | None:
@@ -44,7 +44,7 @@ class EsSystem:
         that has to be installed. Guessing instead produces exactly the error
         this exists to prevent: "couldn't find emulator core file".
         """
-        for cmd in self.commands:
+        for _label, cmd in self.commands:
             m = _CORE_RE.search(cmd)
             if m:
                 return m.group(1).lower()
@@ -82,7 +82,8 @@ def parse(path: Path) -> dict:
             continue
         exts = {e.lower() for e in (node.findtext("extension") or "").split()
                 if e.startswith(".")}
-        commands = [(c.text or "").strip() for c in node.findall("command")]
+        commands = [((c.get("label") or "").strip(), (c.text or "").strip())
+                    for c in node.findall("command")]
         out[key] = EsSystem(key, (node.findtext("fullname") or "").strip(),
                             exts, commands)
     return out

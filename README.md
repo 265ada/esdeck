@@ -17,10 +17,11 @@ Zero dependencies — Python 3.10+ standard library only, so getting it onto mac
 
 ## Install
 
-Clone the repo and double-click **`install.bat`**. That is the whole setup.
+Clone the repo and double-click **`esdeck.bat`**. That one file is everything -
+first run sets the PC up, every run after that sorts your games.
 
 ```bash
-git clone https://github.com/265ada/esdeck && cd esdeck && install.bat
+git clone https://github.com/265ada/esdeck && cd esdeck && esdeck.bat
 ```
 
 It asks one question - which drive your games should live on. It measures every
@@ -57,15 +58,16 @@ Every step checks before it acts, so re-running it is safe.
 For scripted or unattended installs, pass the folder as an argument:
 
 ```bash
-install.bat D:\Games --common-cores
+esdeck.bat D:\Games --common-cores
 ```
 
-Flags, in any order: `--common-cores` (11 cores instead of 55), `--no-cores`,
-`--all-emulators` (adds Dolphin, PCSX2, DuckStation and PPSSPP alongside RetroArch).
+Flags, in any order: `--common-cores`, `--no-cores`, `--all-emulators`,
+`--repair`, `--clean` (free the drop folder afterwards), `--setup` (redo first-run setup).
 
 ## Daily use
 
-Put games in `Incoming`, then either double-click **Sort Games** on the Desktop, or run:
+Put games in `Incoming`, then double-click **esdeck** on the Desktop (put there on
+first run), or run:
 
 ```bash
 esdeck sync
@@ -131,9 +133,13 @@ Behaviour worth knowing:
   files in one folder or, as they usually arrive, four sibling folders named
   `Game (USA) (Disc 1)` … `(Disc 4)` - those are merged into a single game.
 - **Every archive format is handled** - `.zip`, `.7z`, `.rar`, `.cab`, `.tar`, `.gz`, `.xz`
-  and the rest - through 7-Zip, which `install.bat` installs. Archives are opened during
+  and the rest - through 7-Zip, which `esdeck.bat` installs. Archives are opened during
   scanning too, so a game inside a `.7z` is identified without unpacking it first, README
   included.
+- **A collection is unpacked, then sorted game by game.** An archive holding many
+  games is extracted to a staging folder, every game inside is identified and filed
+  individually, and the staging folder is removed - so a 3259-ROM set becomes 3259
+  library entries, not one unplayable one.
 - **Split archives are one game, not fifty.** `Collection.part01.rar` through `.part47`,
   `Game.7z.001`, `Game.zip.001`, `Game.r00` and bare `.part01` sets are all recognised;
   only the first volume is opened and 7-Zip joins the rest.
@@ -250,7 +256,7 @@ existed: it hides the data half of multi-file games so each game shows once, and
 reports duplicates - the same title in two formats, or filed under two systems. It
 never deletes a game; which copy to keep is your call.
 
-`install.bat --repair` reinstalls ES-DE, RetroArch and 7-Zip over an existing
+`esdeck.bat --repair` reinstalls ES-DE, RetroArch and 7-Zip over an existing
 install. It uses winget's `--force` rather than uninstalling first, and backs up
 your RetroArch saves, save states, controller bindings, playlists and `system/`
 folder plus your ES-DE settings to a timestamped folder beforehand. An existing
@@ -278,7 +284,8 @@ esdeck profile import --file esdeck-profile.json
 
 | Command | What it does |
 | --- | --- |
-| `install.bat` | One-shot first-run setup for a fresh machine |
+| `esdeck.bat` | The one file: sets up a new PC, then sorts games on every run |
+| `esdeck emulators` | Show or set which emulator ES-DE uses, with BIOS-free suggestions |
 | `esdeck sync` | Sort the drop folder and finish the setup (the usual command) |
 | `esdeck init` | Autodetect and record this machine's paths |
 | `esdeck bootstrap` | Install ES-DE/RetroArch/emulators, create the ROM tree (dry run by default) |
@@ -306,6 +313,10 @@ python -m unittest discover -s tests
 esdeck organises games **you already have** onto disk and configures the software that runs them.
 It does not download, locate, or otherwise obtain games, BIOS files, or emulator firmware, and it
 does not patch or modify game executables.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
