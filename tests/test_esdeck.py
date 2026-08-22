@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
 from esdeck import archives, bios, clean, config, cores, drives  # noqa: E402
-from esdeck import dedupe, emulators, esde  # noqa: E402
+from esdeck import dedupe, emulators, esde, history  # noqa: E402
 from esdeck import progress  # noqa: E402
 from esdeck import launcher, plan  # noqa: E402
 from esdeck import readme_parse  # noqa: E402
@@ -1319,6 +1319,87 @@ class TestProgress(unittest.TestCase):
             {"type": "mkdir"},
         ]}]
         self.assertEqual(progress.plan_totals(plans), (1, 100))
+
+
+class TestUndo(unittest.TestCase):
+    """A sort you cannot reverse is a sort you are afraid to run."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.d = Path(self.td.name)
+        self.lib = self.d / "ROMs" / "snes"
+        self.lib.mkdir(parents=True)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def _run_with(self, *paths):
+        run = history.Run(rom_dir=str(self.d / "ROMs"))
+        for p in paths:
+            run.add(p, "dir" if p.is_dir() else "file")
+        return run
+
+    def test_removes_what_the_sort_created(self):
+        game = self.lib / "Zelda.sfc"
+        game.write_bytes(b"rom data")
+        run = self._run_with(game)
+        res = history.undo(run, dry_run=False, log=lambda *a: None)
+        self.assertEqual(res.removed_files, 1)
+        self.assertFalse(game.exists())
+
+    def test_dry_run_removes_nothing(self):
+        game = self.lib / "Zelda.sfc"
+        game.write_bytes(b"rom data")
+        history.undo(self._run_with(game), dry_run=True, log=lambda *a: None)
+        self.assertTrue(game.exists())
+
+    def test_a_file_changed_since_the_sort_is_kept(self):
+        """By then it is not esdeck's file to remove."""
+        game = self.lib / "Zelda.sfc"
+        game.write_bytes(b"rom data")
+        run = self._run_with(game)
+        game.write_bytes(b"something else entirely, different size")
+        res = history.undo(run, dry_run=False, log=lambda *a: None)
+        self.assertEqual(res.removed_files, 0)
+        self.assertEqual(len(res.kept), 1)
+        self.assertTrue(game.exists())
+
+    def test_a_folder_that_still_holds_something_is_kept(self):
+        game = self.lib / "Zelda.sfc"
+        game.write_bytes(b"rom")
+        keeper = self.lib / "NotMine.sfc"
+        keeper.write_bytes(b"someone else put this here")
+        run = self._run_with(game, self.lib)
+        history.undo(run, dry_run=False, log=lambda *a: None)
+        self.assertTrue(self.lib.is_dir())
+        self.assertTrue(keeper.exists())
+
+    def test_empty_folder_it_created_is_removed(self):
+        game = self.lib / "Zelda.sfc"
+        game.write_bytes(b"rom")
+        run = self._run_with(game, self.lib)
+        res = history.undo(run, dry_run=False, log=lambda *a: None)
+        self.assertEqual(res.removed_dirs, 1)
+        self.assertFalse(self.lib.exists())
+
+    def test_missing_file_is_not_an_error(self):
+        game = self.lib / "Gone.sfc"
+        game.write_bytes(b"rom")
+        run = self._run_with(game)
+        game.unlink()
+        res = history.undo(run, dry_run=False, log=lambda *a: None)
+        self.assertEqual(res.removed_files, 0)
+        self.assertEqual(res.kept, [])
+
+    def test_run_round_trips_through_json(self):
+        game = self.lib / "Zelda.sfc"
+        game.write_bytes(b"rom data")
+        run = self._run_with(game)
+        run.sources = ["D:/Incoming"]
+        back = history.Run.from_dict(json.loads(json.dumps(run.to_dict())))
+        self.assertEqual(back.files, 1)
+        self.assertEqual(back.sources, ["D:/Incoming"])
+        self.assertEqual(back.created[0].path, str(game))
 
 
 class TestEmulatorChoice(unittest.TestCase):

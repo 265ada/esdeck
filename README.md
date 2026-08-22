@@ -244,6 +244,28 @@ Or record them once so a bare `esdeck sync` covers them all:
 esdeck init --source-dir D:\Incoming --source-dir E:\Downloads\Games
 ```
 
+## Undoing a sort
+
+Every sort is recorded, so it can be taken back:
+
+```bash
+esdeck undo
+```
+
+That shows what would be removed and changes nothing; `--yes` does it. Or run
+`sort-games.bat --undo`.
+
+Undo removes only what that run created, and only where the file is still exactly
+as esdeck left it - same size, same modification time. Anything edited since is kept
+and reported, and a folder that still holds something is left alone. Your originals
+are never involved, because esdeck copies rather than moves.
+
+```bash
+esdeck history
+```
+
+lists previous sorts; `esdeck undo --run ID` reverses a specific one.
+
 ## Messy collections
 
 Artwork is never treated as a game. This matters more than it sounds: ES-DE lists

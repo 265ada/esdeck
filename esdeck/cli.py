@@ -9,6 +9,8 @@
     esdeck cores           install RetroArch cores for your systems
     esdeck bios            check the BIOS files your systems need
     esdeck emulators       show or set which emulator ES-DE uses
+    esdeck undo            reverse a previous sort
+    esdeck history         list previous sorts
     esdeck tidy            repair an existing library and find duplicates
     esdeck clean           free space: remove drop-folder copies already filed
     esdeck launchers       create .bat launchers for installed PC games
@@ -31,6 +33,7 @@ from . import bootstrap, clean as clean_mod, config, cores as cores_mod
 from . import dedupe as dedupe_mod
 from . import drives as drives_mod
 from . import emulators as emu_mod
+from . import history as history_mod
 from . import launcher, plan as plan_mod
 from . import progress as progress_mod
 from . import scan as scan_mod
@@ -329,6 +332,8 @@ def cmd_sync(args) -> int:
 
     # Progress and an estimate: a few thousand games is tens of GB and minutes
     # of copying, which without feedback looks exactly like a hung program.
+    journal = history_mod.Run(label="sync", rom_dir=cfg.rom_dir,
+                              sources=[str(x) for x in sources])
     n_items, n_bytes = progress_mod.plan_totals(bundle["plans"])
     bar = progress_mod.Progress(total_items=n_items, total_bytes=n_bytes,
                                 enabled=args.yes and n_items > 1)
@@ -341,6 +346,8 @@ def cmd_sync(args) -> int:
         res = apply_mod.apply_plan(pl, dry_run=not args.yes, roots=roots,
                                    overwrite=args.overwrite, log=lambda *a: None,
                                    on_progress=tick)
+        for made, kind in res.created:
+            journal.add(made, kind)
         errors += len(res.errors)
         if not bar.enabled:
             _p(f"{indent}{pl['name']} -> {pl['system']}: {res}")
@@ -356,6 +363,8 @@ def cmd_sync(args) -> int:
                 res = apply_mod.apply_plan(pl, dry_run=False, roots=roots,
                                            overwrite=args.overwrite,
                                            log=lambda *a: None, on_progress=tick)
+                for made, kind in res.created:
+                    journal.add(made, kind)
                 errors += len(res.errors)
                 for e in res.errors:
                     _p(f"    ERROR {e}")
@@ -384,6 +393,8 @@ def cmd_sync(args) -> int:
             res = apply_mod.apply_plan(pl, dry_run=False, roots=roots,
                                        overwrite=args.overwrite,
                                        log=lambda *a: None, on_progress=tick)
+            for made, kind in res.created:
+                journal.add(made, kind)
             errors += len(res.errors)
             placed += 1
             manual.extend(f"[{pl['name']}] {s}" for s in apply_mod.manual_steps(pl))
@@ -469,6 +480,10 @@ def cmd_sync(args) -> int:
     if not args.yes:
         _p("\nDRY RUN - nothing was changed. Re-run with --yes to do it.")
     else:
+        if journal.created:
+            history_mod.save(journal)
+            _p(f"\nRecorded this sort - 'esdeck undo' reverses it "
+               f"({journal.files} file(s)).")
         _p("\nDone. Restart ES-DE (or press F5 in it) to see the new games.")
     return 1 if errors else 0
 
@@ -598,6 +613,65 @@ def cmd_drives(args) -> int:
         _p(f" {marker} {d.describe()}")
     _p("")
     _p(f"Suggested: {drives_mod.suggest()}")
+    return 0
+
+
+# --------------------------------------------------------------------- undo
+def cmd_undo(args) -> int:
+    """Reverse a previous sort, removing only what that run created."""
+    found = history_mod.runs()
+    if not found:
+        _p("No sorts recorded yet - nothing to undo.")
+        return 0
+
+    if args.run:
+        match = [(p, r) for p, r in found if p.stem == str(args.run)]
+        if not match:
+            _p(f"No run with id {args.run}. Use 'esdeck history' to list them.")
+            return 2
+        path, run = match[0]
+    else:
+        path, run = found[0]
+
+    _p(f"Undoing the sort of {run.when}")
+    if run.sources:
+        _p(f"  from: {', '.join(run.sources)}")
+    _p(f"  it created {run.files} file(s), "
+       f"{run.total_bytes / 1_048_576:.0f} MB")
+    _p("")
+    res = history_mod.undo(run, dry_run=not args.yes,
+                           log=_p if args.verbose else lambda *a: None)
+    _p(f"  {res.summary()}")
+    for kept, why in res.kept[:10]:
+        _p(f"  kept   {Path(kept).name}: {why}")
+    if len(res.kept) > 10:
+        _p(f"  ... and {len(res.kept) - 10} more kept")
+
+    if not args.yes:
+        _p("")
+        _p("DRY RUN - nothing was removed. Re-run with --yes to undo.")
+    else:
+        history_mod.forget(path)
+        _p("")
+        _p("Your original files in the drop folder were never touched.")
+    return 0
+
+
+# ------------------------------------------------------------------ history
+def cmd_history(args) -> int:
+    """List previous sorts, newest first."""
+    found = history_mod.runs()
+    if not found:
+        _p("No sorts recorded yet.")
+        return 0
+    _p(f"{'id':<12} {'when':<21} {'files':>7} {'size':>10}  sources")
+    for path, run in found:
+        _p(f"{path.stem:<12} {run.when:<21} {run.files:>7} "
+           f"{run.total_bytes / 1_048_576:>9.0f}M  "
+           f"{', '.join(Path(s).name for s in run.sources) or '-'}")
+    _p("")
+    _p("esdeck undo            reverse the most recent sort")
+    _p("esdeck undo --run ID   reverse a specific one")
     return 0
 
 
@@ -902,6 +976,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--normalize", metavar="ANSWER",
                    help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)
+
+    p = sub.add_parser("undo", help="reverse a previous sort")
+    p.add_argument("--run", help="undo a specific run (see esdeck history)")
+    p.add_argument("--yes", action="store_true", help="remove (default is a dry run)")
+    p.add_argument("--verbose", action="store_true", help="list every file")
+    p.set_defaults(func=cmd_undo)
+
+    p = sub.add_parser("history", help="list previous sorts")
+    p.set_defaults(func=cmd_history)
 
     p = sub.add_parser("tidy", help="repair an existing library and find duplicates")
     p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")

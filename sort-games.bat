@@ -10,6 +10,7 @@ rem  It shows what it found and what it will do, then asks before changing
 rem  anything. Run esdeck.bat first if this PC has not been set up.
 rem
 rem  Optional arguments:
+rem    --undo       reverse the last sort instead of sorting
 rem    --clean      afterwards delete the Incoming copies, once verified
 rem    --yes        skip the confirmation
 rem    --no-pause   do not wait for a key at the end (for scripts)
@@ -20,11 +21,13 @@ cd /d "%~dp0"
 
 set "DROPPED="
 set "OPT_CLEAN="
+set "OPT_UNDO="
 set "OPT_YES="
 set "OPT_NOPAUSE="
 for %%a in (%*) do (
     set "ARG=%%~a"
-    if /i "!ARG!"=="--clean"    ( set "OPT_CLEAN=1"
+    if /i "!ARG!"=="--undo"     ( set "OPT_UNDO=1"
+    ) else if /i "!ARG!"=="--clean"    ( set "OPT_CLEAN=1"
     ) else if /i "!ARG!"=="--yes"      ( set "OPT_YES=1"
     ) else if /i "!ARG!"=="--no-pause" ( set "OPT_NOPAUSE=1"
     ) else ( set "DROPPED=!DROPPED! "%%~a"" )
@@ -51,6 +54,22 @@ if errorlevel 1 (
     echo  [X] This PC is not set up yet - run esdeck.bat first.
     echo      It asks where your games should live and installs everything.
     goto :fail
+)
+
+if defined OPT_UNDO (
+    echo  Undoing the most recent sort. Your original files are not touched.
+    echo.
+    %ESDECK% undo
+    echo.
+    set "GO="
+    set /p "GO=  Undo it? [y/N] "
+    if /i not "!GO!"=="y" (
+        echo  Nothing was changed.
+        goto :ok
+    )
+    echo.
+    %ESDECK% undo --yes
+    goto :ok
 )
 
 rem Tidy first: removes a stray folder from an older version, and makes sure
@@ -88,6 +107,8 @@ echo.
 echo.
 echo  ===========================================================
 echo    Done - press F5 in ES-DE to see the new games.
+echo.
+echo    Wrong? Run this file again with --undo to reverse it.
 echo  ===========================================================
 goto :ok
 

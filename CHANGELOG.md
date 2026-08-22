@@ -6,6 +6,23 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.7.0] - 2026-08-22
+
+### Added
+- **Undo.** Every sort records exactly which files and folders it created, so
+  `esdeck undo` reverses it - or `sort-games.bat --undo`. A sort you cannot
+  reverse is a sort you are afraid to run, which matters most on the first
+  attempt with a messy collection.
+
+  Undo removes only what that run created, and only where the file is still
+  exactly as it was left - same size, same modification time. Anything touched
+  since is kept and reported, because by then it is not esdeck's to remove. A
+  folder that still holds something is left alone. Your originals in the drop
+  folder are never involved: esdeck copies, so they were never moved.
+
+- **`esdeck history`** lists previous sorts with their date, file count and
+  size, and `esdeck undo --run ID` reverses a specific one rather than the last.
+
 ## [0.6.0] - 2026-08-22
 
 ### Added
