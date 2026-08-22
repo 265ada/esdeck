@@ -122,7 +122,7 @@ FALLBACK: dict[str, tuple[BiosFile, ...]] = {
 
 def requirements_for(system: str) -> tuple[BiosFile, ...]:
     """Firmware the given ES-DE system needs, via the core that runs it."""
-    core = cores_mod.SYSTEM_CORES.get(system)
+    core = cores_mod.core_for_system(system)
     if core:
         found = _core_requirements().get(core)
         if found:

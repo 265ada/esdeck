@@ -48,7 +48,7 @@ Then it does everything else:
 | Emulators | Installs ES-DE, RetroArch and 7-Zip via winget |
 | ROM tree | Creates `ROMs\<system>\` for every supported system |
 | ES-DE | Writes your ROM path into its settings so it finds the library |
-| Cores | Downloads **all 55** RetroArch cores esdeck knows about (~770 MB) |
+| Cores | Downloads every core ES-DE actually launches (~80 cores, ~900 MB) |
 | Shortcut | Puts **Sort Games** on your Desktop |
 | Check | Runs `esdeck doctor` and prints any remaining problem with its fix |
 
@@ -186,6 +186,19 @@ from its own directory. When several executables are plausible it lists them and
 ```bash
 esdeck launchers --yes
 ```
+
+## Which core gets installed
+
+ES-DE runs the **first** `<command>` listed for a system in its `es_systems.xml`, so that
+is the core that has to be present. esdeck reads it from there rather than guessing.
+
+This matters more than it sounds: a hand-written map had `psx` on SwanStation while ES-DE
+calls Beetle PSX, which fails at launch with *"couldn't find emulator core file
+'mednafen_psx_libretro.dll'"*. Reading ES-DE's own configuration also found 59 systems a
+hand-written map had missed entirely.
+
+Cores ES-DE names but libretro does not build for Windows are skipped rather than retried
+into a 404.
 
 ## BIOS files
 

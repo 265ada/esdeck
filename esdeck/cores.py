@@ -16,6 +16,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from . import esde
+
 BUILDBOT = "https://buildbot.libretro.com/nightly/windows/x86_64/latest"
 USER_AGENT = "esdeck/0.1 (+https://github.com/265ada/esdeck)"
 TIMEOUT = 120
@@ -92,10 +94,43 @@ COMMON_CORES = (
 def all_cores() -> list:
     """Every core esdeck knows how to fetch, de-duplicated."""
     out = []
-    for core in SYSTEM_CORES.values():
-        if core not in out:
+    for core in known_core_systems().values():
+        if core and core not in out:
             out.append(core)
     return out
+
+
+#: Cores ES-DE references that libretro does not build for Windows x86_64.
+#: Verified against the buildbot index; requesting them only yields a 404.
+UNAVAILABLE = {"mess2015", "gamate", "crvision", "solarus"}
+
+
+def core_for_system(key: str) -> str | None:
+    """The core ES-DE will actually launch for a system.
+
+    ES-DE runs the first <command> listed for each system, so that is the core
+    that must be installed. Reading it beats guessing: a hand-written map had
+    psx on swanstation while ES-DE calls Beetle PSX, which fails at launch with
+    "couldn't find emulator core file". The built-in table is only a fallback
+    for machines where ES-DE is not installed yet.
+    """
+    sysdef = esde.load().get(key)
+    if sysdef is not None:
+        found = sysdef.default_core
+        if found and found not in UNAVAILABLE:
+            return found
+    fallback = SYSTEM_CORES.get(key)
+    return fallback if fallback and fallback not in UNAVAILABLE else None
+
+
+def known_core_systems() -> dict:
+    """{system: core} for everything that can run on a libretro core."""
+    out = {k: v for k, v in SYSTEM_CORES.items() if v}
+    for key, sysdef in esde.load().items():
+        core = sysdef.default_core
+        if core and core not in UNAVAILABLE:
+            out[key] = core
+    return {k: v for k, v in out.items() if v and v not in UNAVAILABLE}
 
 
 def retroarch_dirs() -> tuple[Path | None, Path | None]:
@@ -121,9 +156,9 @@ def cores_for_systems(rom_dir: Path) -> list[str]:
     """Cores needed for the systems that actually have games in them."""
     rom_dir = Path(rom_dir)
     needed = []
-    for key, core in SYSTEM_CORES.items():
+    for key, core in known_core_systems().items():
         d = rom_dir / key
-        if d.is_dir() and any(d.iterdir()) and core not in needed:
+        if core and d.is_dir() and any(d.iterdir()) and core not in needed:
             needed.append(core)
     return needed
 

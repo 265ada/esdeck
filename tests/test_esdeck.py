@@ -625,6 +625,24 @@ class TestMultiDiscFolders(ScanFixture):
 class TestCores(unittest.TestCase):
     """Core names are downloaded by name, so a typo is a silent 404."""
 
+    def test_core_comes_from_es_de_launch_command(self):
+        """ES-DE runs the first <command>; installing any other core fails."""
+        sysdef = esde.EsSystem("psx", "Sony PlayStation", {".cue"}, [
+            r"%EMULATOR_RETROARCH% -L %CORE_RETROARCH%\mednafen_psx_libretro.dll %ROM%",
+            r"%EMULATOR_RETROARCH% -L %CORE_RETROARCH%\swanstation_libretro.dll %ROM%",
+        ])
+        self.assertEqual(sysdef.default_core, "mednafen_psx")
+
+    def test_standalone_emulator_command_has_no_core(self):
+        sysdef = esde.EsSystem("ps3", "PS3", set(),
+                               [r"%EMULATOR_RPCS3% --no-gui %ROM%"])
+        self.assertIsNone(sysdef.default_core)
+
+    def test_unavailable_cores_are_never_requested(self):
+        """Some cores ES-DE names have no Windows build; asking 404s."""
+        for core in cores.UNAVAILABLE:
+            self.assertNotIn(core, cores.all_cores())
+
     def test_core_names_look_like_buildbot_names(self):
         for system, core in cores.SYSTEM_CORES.items():
             self.assertIsInstance(core, str, system)

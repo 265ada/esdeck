@@ -12,10 +12,14 @@ still works on a machine that has not been set up yet.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+
+#: %CORE_RETROARCH%\something_libretro.dll inside a launch command.
+_CORE_RE = re.compile(r"%CORE_RETROARCH%[\\/]([A-Za-z0-9_-]+)_libretro\.dll", re.I)
 
 ES_DE_RESOURCE_DIRS = (
     r"C:\Program Files\ES-DE\resources\systems\windows",
@@ -30,6 +34,21 @@ class EsSystem:
     key: str                       # folder name, e.g. "psx"
     fullname: str = ""             # e.g. "Sony PlayStation"
     exts: set = field(default_factory=set)   # lowercase, with leading dot
+    commands: list = field(default_factory=list)   # launch commands, in order
+
+    @property
+    def default_core(self) -> str | None:
+        """The libretro core ES-DE uses unless told otherwise.
+
+        ES-DE runs the *first* command listed for a system, so that is the core
+        that has to be installed. Guessing instead produces exactly the error
+        this exists to prevent: "couldn't find emulator core file".
+        """
+        for cmd in self.commands:
+            m = _CORE_RE.search(cmd)
+            if m:
+                return m.group(1).lower()
+        return None
 
     def __repr__(self) -> str:      # keeps test failures readable
         return f"EsSystem({self.key!r}, {len(self.exts)} exts)"
@@ -63,7 +82,9 @@ def parse(path: Path) -> dict:
             continue
         exts = {e.lower() for e in (node.findtext("extension") or "").split()
                 if e.startswith(".")}
-        out[key] = EsSystem(key, (node.findtext("fullname") or "").strip(), exts)
+        commands = [(c.text or "").strip() for c in node.findall("command")]
+        out[key] = EsSystem(key, (node.findtext("fullname") or "").strip(),
+                            exts, commands)
     return out
 
 
