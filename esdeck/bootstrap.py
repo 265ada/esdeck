@@ -15,15 +15,27 @@ from .systems import SYSTEMS
 
 #: winget package ids. Emulators are optional; ES-DE + RetroArch cover most systems.
 PACKAGES = {
-    "es-de": ("ES-DE.ES-DE", "EmulationStation Desktop Edition"),
+    "es-de": ("ES-DE.EmulationStation-DE", "EmulationStation Desktop Edition"),
     "retroarch": ("Libretro.RetroArch", "RetroArch (multi-system cores)"),
     "dolphin": ("DolphinEmulator.Dolphin", "Dolphin (GameCube / Wii)"),
-    "pcsx2": ("PCSX2.PCSX2", "PCSX2 (PlayStation 2)"),
-    "duckstation": ("StenzekConsulting.DuckStation", "DuckStation (PlayStation 1)"),
+    "pcsx2": ("PCSX2Team.PCSX2", "PCSX2 (PlayStation 2)"),
+    "duckstation": ("Stenzek.DuckStation", "DuckStation (PlayStation 1)"),
     "ppsspp": ("PPSSPPTeam.PPSSPP", "PPSSPP (PSP)"),
     "7zip": ("7zip.7zip", "7-Zip (needed for .7z/.rar game archives)"),
 }
 DEFAULT_PACKAGES = ("es-de", "retroarch", "7zip")
+
+
+#: winget exit codes worth translating; anything else is reported verbatim.
+WINGET_ERRORS = {
+    0x8A15002B: "no such package id (winget may have renamed it)",
+    0x8A150011: "no applicable installer for this system",
+    0x8A150056: "already installed and up to date",
+}
+
+
+def _winget_error(code: int) -> str:
+    return WINGET_ERRORS.get(code & 0xFFFFFFFF, f"winget exit code {code}")
 
 
 def have_winget() -> bool:
@@ -57,8 +69,25 @@ def install_package(key: str, *, dry_run: bool = True, log=print) -> bool:
          "--accept-package-agreements", "--accept-source-agreements"],
         text=True)
     if proc.returncode != 0:
-        log(f"  ERROR  winget exited {proc.returncode} for {package_id}")
+        log(f"  ERROR  {label}: {_winget_error(proc.returncode)} [{package_id}]")
     return proc.returncode == 0
+
+
+#: Where ES-DE's executable normally lands on Windows.
+ES_DE_BINARIES = (
+    r"C:\Program Files\ES-DE\ES-DE.exe",
+    r"C:\Program Files (x86)\ES-DE\ES-DE.exe",
+)
+
+
+def find_es_de() -> Path | None:
+    """Locate an installed ES-DE binary, whether or not it has ever been run."""
+    for candidate in ES_DE_BINARIES:
+        p = Path(candidate)
+        if p.is_file():
+            return p
+    found = shutil.which("ES-DE")
+    return Path(found) if found else None
 
 
 def make_rom_tree(cfg: Config, *, dry_run: bool = True, log=print) -> list[Path]:

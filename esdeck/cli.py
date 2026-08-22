@@ -181,8 +181,16 @@ def cmd_doctor(args) -> int:
     _p(f"Config: {config.CONFIG_PATH}{'' if config.CONFIG_PATH.is_file() else ' (not written yet)'}")
     check(bool(cfg.rom_dir) and Path(cfg.rom_dir).is_dir(),
           f"ROM directory {cfg.rom_dir}", "esdeck init --rom-dir <path>")
+    es_binary = bootstrap.find_es_de()
+    check(es_binary is not None,
+          f"ES-DE installed{f' ({es_binary})' if es_binary else ''}",
+          "esdeck bootstrap --packages es-de --yes")
+    # ES-DE only creates its config dir on first launch, so an installed-but-never-run
+    # ES-DE is a different problem from a missing one.
     check(Path(cfg.es_config_dir).is_dir(),
-          f"ES-DE config dir {cfg.es_config_dir}", "install ES-DE, or esdeck bootstrap --yes")
+          f"ES-DE config dir {cfg.es_config_dir}",
+          "launch ES-DE once - it creates this on first run"
+          if es_binary else "install ES-DE first")
     settings = config.read_es_settings(Path(cfg.es_config_dir))
     check(bool(settings), "es_settings.xml readable", "launch ES-DE once so it writes its settings")
     if settings.get("ROMDirectory") and cfg.rom_dir:
