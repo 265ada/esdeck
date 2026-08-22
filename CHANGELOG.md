@@ -6,6 +6,15 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.5.1] - 2026-08-22
+
+### Fixed
+- **Deleting the extracted ZIP folder uninstalled esdeck.** Setup used an
+  editable install (`pip install -e .`), which only points at the folder it was
+  run from - so tidying up the download afterwards left nothing behind. It now
+  installs a real copy, and the extracted folder can be deleted once setup has
+  finished.
+
 ## [0.5.0] - 2026-08-22
 
 ### Changed

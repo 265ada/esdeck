@@ -23,6 +23,12 @@ live, then installs and configures everything.
 After that, **`sort-games.bat`** is the one you use: drag games onto it, or drop them
 in your Incoming folder and double-click it.
 
+**No git required.** On the repo page choose **Code -> Download ZIP**, extract it
+anywhere, and double-click `esdeck.bat`. Once setup finishes you can delete the
+extracted folder - esdeck is installed properly, not linked to it.
+
+With git, if you have it:
+
 ```bash
 git clone https://github.com/265ada/esdeck && cd esdeck && esdeck.bat
 ```

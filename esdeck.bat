@@ -72,7 +72,9 @@ if not exist "pyproject.toml" (
 )
 
 echo  [..] Installing esdeck
-%PY% -m pip install -e . --quiet --disable-pip-version-check
+rem A plain install, not "-e": an editable install only points at this folder,
+rem so deleting the extracted ZIP afterwards would uninstall esdeck.
+%PY% -m pip install . --quiet --disable-pip-version-check
 if errorlevel 1 (
     echo  [X] pip install failed. Scroll up for the reason.
     goto :fail
