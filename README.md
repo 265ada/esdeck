@@ -20,7 +20,7 @@ Zero dependencies — Python 3.10+ standard library only, so getting it onto mac
 Clone the repo and double-click **`install.bat`**. That is the whole setup.
 
 ```bash
-git clone https://github.com/<you>/esdeck && cd esdeck && install.bat
+git clone https://github.com/265ada/esdeck && cd esdeck && install.bat
 ```
 
 It asks one question - where your games should live - then does everything else:

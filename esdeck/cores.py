@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 BUILDBOT = "https://buildbot.libretro.com/nightly/windows/x86_64/latest"
-USER_AGENT = "esdeck/0.1 (+https://github.com/)"
+USER_AGENT = "esdeck/0.1 (+https://github.com/265ada/esdeck)"
 TIMEOUT = 120
 MAX_CORE_BYTES = 200 * 1024 * 1024
 
