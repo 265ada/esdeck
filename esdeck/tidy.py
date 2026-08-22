@@ -100,6 +100,63 @@ def unhidden_disc_folders(rom_dir: Path) -> list[tuple[Path, str]]:
     return out
 
 
+#: Folders that look like a library but are really the artefact of answering
+#: the drive question with a bare letter. "G" is a relative path, so "G\ROMs"
+#: was created next to the script instead of on the G: drive.
+LIBRARY_MARKERS = ("ROMs", "Incoming")
+
+
+@dataclass
+class Stray:
+    path: Path
+    files: int          # real files inside; 0 means it is just an empty tree
+
+    @property
+    def safe_to_remove(self) -> bool:
+        return self.files == 0
+
+    def describe(self) -> str:
+        if self.safe_to_remove:
+            return f"{self.path}  (empty - safe to remove)"
+        return (f"{self.path}  ({self.files} file(s) inside - NOT removed, "
+                f"move them somewhere real first)")
+
+
+def stray_libraries(near) -> list[Stray]:
+    """Mis-created library folders sitting in `near`.
+
+    Only single-letter folders are considered, and only when they contain a
+    ROMs or Incoming folder - that combination does not happen by accident. A
+    stray holding actual files is reported but never deleted, because by then
+    it is somebody's library, wrong place or not.
+    """
+    near = Path(near)
+    out = []
+    try:
+        entries = [p for p in near.iterdir() if p.is_dir()]
+    except OSError:
+        return []
+    for d in entries:
+        if len(d.name) != 1 or not d.name.isalpha():
+            continue
+        if not any((d / m).is_dir() for m in LIBRARY_MARKERS):
+            continue
+        files = sum(1 for p in d.rglob("*") if p.is_file())
+        out.append(Stray(d, files))
+    return out
+
+
+def remove_stray(stray: Stray, *, dry_run: bool = True) -> str:
+    """Delete an empty stray library tree. Never touches one holding files."""
+    if not stray.safe_to_remove:
+        return f"kept {stray.path} - it has {stray.files} file(s) in it"
+    if dry_run:
+        return f"would remove {stray.path}"
+    import shutil
+    shutil.rmtree(stray.path, ignore_errors=True)
+    return f"removed {stray.path}"
+
+
 @dataclass
 class Duplicate:
     system: str

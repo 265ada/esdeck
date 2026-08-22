@@ -6,6 +6,16 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.4.1] - 2026-08-22
+
+### Fixed
+- **The stray "G" folder is now cleaned up, not just reported.** `esdeck tidy`
+  removes a mis-created library folder left by answering the drive question with
+  a bare letter, and `esdeck.bat` runs tidy on every run, so it disappears by
+  itself on the next run - on any drive letter, on any PC. A stray that has real
+  files in it is never deleted: by then it is somebody's library, wrong place or
+  not, so it is reported with its file count instead.
+
 ## [0.4.0] - 2026-08-22
 
 ### Added

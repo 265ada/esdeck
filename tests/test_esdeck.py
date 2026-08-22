@@ -820,6 +820,45 @@ class TestTidy(unittest.TestCase):
         touch(self.roms / "snes" / "Super Metroid.sfc")
         self.assertEqual(tidy.duplicates(self.roms), [])
 
+    def test_stray_letter_folder_is_found(self):
+        """Answering the drive question with "G" made a folder called G."""
+        stray = self.roms.parent / "G"
+        (stray / "ROMs" / "snes").mkdir(parents=True)
+        (stray / "Incoming").mkdir(parents=True)
+        found = tidy.stray_libraries(self.roms.parent)
+        self.assertEqual([s.path.name for s in found], ["G"])
+        self.assertTrue(found[0].safe_to_remove)
+
+    def test_empty_stray_is_removed(self):
+        stray = self.roms.parent / "G"
+        (stray / "ROMs" / "snes").mkdir(parents=True)
+        found = tidy.stray_libraries(self.roms.parent)
+        tidy.remove_stray(found[0], dry_run=False)
+        self.assertFalse(stray.exists())
+
+    def test_stray_holding_games_is_never_removed(self):
+        """By then it is someone's library, in the wrong place or not."""
+        stray = self.roms.parent / "E"
+        (stray / "ROMs" / "n64").mkdir(parents=True)
+        touch(stray / "ROMs" / "n64" / "Real Game.n64")
+        found = tidy.stray_libraries(self.roms.parent)
+        self.assertFalse(found[0].safe_to_remove)
+        tidy.remove_stray(found[0], dry_run=False)
+        self.assertTrue((stray / "ROMs" / "n64" / "Real Game.n64").is_file())
+
+    def test_dry_run_removes_nothing(self):
+        stray = self.roms.parent / "G"
+        (stray / "ROMs").mkdir(parents=True)
+        found = tidy.stray_libraries(self.roms.parent)
+        tidy.remove_stray(found[0], dry_run=True)
+        self.assertTrue(stray.exists())
+
+    def test_ordinary_folders_are_left_alone(self):
+        """Only a single letter *and* a library tree inside counts."""
+        (self.roms.parent / "G").mkdir()                    # letter, no library
+        (self.roms.parent / "Games" / "ROMs").mkdir(parents=True)  # library, not a letter
+        self.assertEqual(tidy.stray_libraries(self.roms.parent), [])
+
     def test_same_title_under_two_systems_is_reported(self):
         touch(self.roms / "snes" / "Turok.sfc")
         (self.roms / "n64").mkdir()

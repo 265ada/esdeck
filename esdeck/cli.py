@@ -529,6 +529,14 @@ def cmd_tidy(args) -> int:
         _p(f"No ROM directory at {rom_dir}")
         return 2
 
+    # A stray "G" folder from answering the drive question with a bare letter.
+    # Look next to wherever tidy was run from, which is where it would land.
+    strays = tidy_mod.stray_libraries(Path.cwd())
+    if args.near:
+        strays += tidy_mod.stray_libraries(Path(args.near))
+    for st in strays:
+        _p("  " + tidy_mod.remove_stray(st, dry_run=not args.yes))
+
     fixes = tidy_mod.redundant_entries(rom_dir) + tidy_mod.unhidden_disc_folders(rom_dir)
     _p(f"{'Hiding' if args.yes else 'Would hide'} {len(fixes)} item(s) so each game "
        f"shows once in ES-DE")
@@ -814,6 +822,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("tidy", help="repair an existing library and find duplicates")
     p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")
+    p.add_argument("--near", help="also look here for stray mis-created library folders")
     p.set_defaults(func=cmd_tidy)
 
     p = sub.add_parser("bios", help="check BIOS files your systems need")

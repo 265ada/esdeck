@@ -280,6 +280,11 @@ default, and never touches a file it has not proved is already safe elsewhere.
 
 ## Repairing an existing setup
 
+`esdeck tidy` also removes a stray library folder created by answering the drive
+question with a bare letter - an empty `G\ROMs` tree sitting next to the script.
+It runs on every `esdeck.bat`, so such a folder cleans itself up. One that has real
+files in it is reported rather than deleted.
+
 `esdeck tidy` fixes a library built by hand, by another tool, or before these rules
 existed: it hides the data half of multi-file games so each game shows once, and
 reports duplicates - the same title in two formats, or filed under two systems. It

@@ -151,16 +151,7 @@ echo  [ok] Using %GAMEROOT%
 
 rem An earlier version turned a bare "G" into a folder called G right here.
 rem If one is sitting next to this script, say so - it is not the library.
-for /d %%d in (?) do (
-    if exist "%%d\ROMs" (
-        echo.
-        echo  [!] There is a stray folder "%%~fd" from an earlier run that
-        echo      answered the drive question with just a letter. It is not
-        echo      your library. Once this finishes, you can remove it with:
-        echo          rmdir /s /q "%%~fd"
-        echo.
-    )
-)
+rem (esdeck tidy removes it during the sorting step below.)
 
 set "ROMDIR=%GAMEROOT%\ROMs"
 set "INCOMING=%GAMEROOT%\Incoming"
@@ -227,7 +218,7 @@ echo  ===========================================================
 echo    Sorting your drop folder
 echo  ===========================================================
 echo.
-%ESDECK% tidy --yes
+%ESDECK% tidy --yes --near "%~dp0."
 echo.
 
 set "SYNCFLAGS=--yes"
