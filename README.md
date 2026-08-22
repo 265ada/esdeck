@@ -17,36 +17,45 @@ Zero dependencies — Python 3.10+ standard library only, so getting it onto mac
 
 ## Install
 
-```bash
-git clone https://github.com/<you>/esdeck && cd esdeck && pip install -e .
-```
-
-Or skip installing entirely and run it in place with `python -m esdeck ...`.
-
-## Quick start
+Clone the repo and double-click **`install.bat`**. That is the whole setup.
 
 ```bash
-esdeck init --rom-dir D:\ROMs
+git clone https://github.com/<you>/esdeck && cd esdeck && install.bat
 ```
+
+It asks one question - where your games should live - then does everything else:
+
+| Step | What it does |
+| --- | --- |
+| Python | Installs it via winget if missing |
+| esdeck | `pip install -e .` |
+| Folders | Creates `<folder>\ROMs` (library) and `<folder>\Incoming` (drop zone) |
+| Emulators | Installs ES-DE, RetroArch and 7-Zip via winget |
+| ROM tree | Creates `ROMs\<system>\` for every supported system |
+| ES-DE | Writes your ROM path into its settings so it finds the library |
+| Cores | Downloads the RetroArch cores your systems need |
+| Shortcut | Puts **Sort Games** on your Desktop |
+| Check | Runs `esdeck doctor` and prints any remaining problem with its fix |
+
+Every step checks before it acts, so re-running it is safe.
+
+For scripted or unattended installs, pass the folder as an argument:
 
 ```bash
-esdeck bootstrap --yes
+install.bat D:\Games --no-cores
 ```
+
+## Daily use
+
+Put games in `Incoming`, then either double-click **Sort Games** on the Desktop, or run:
 
 ```bash
-esdeck plan D:\incoming
+esdeck sync
 ```
 
-```bash
-esdeck apply esdeck-plan.json --yes
-```
-
-```bash
-esdeck link --yes
-```
-
-`plan` writes `esdeck-plan.json` and changes nothing. `apply` without `--yes` is a dry run. Only
-`apply --yes` touches the disk.
+`sync` is the one command: it reads the drop folder, files the games into the library,
+fetches any missing cores, and creates launchers for PC games. It is a dry run that shows
+you everything it would do; add `--yes` to actually do it.
 
 ## How intake works
 
@@ -150,6 +159,8 @@ esdeck profile import --file esdeck-profile.json
 
 | Command | What it does |
 | --- | --- |
+| `install.bat` | One-shot first-run setup for a fresh machine |
+| `esdeck sync` | Sort the drop folder and finish the setup (the usual command) |
 | `esdeck init` | Autodetect and record this machine's paths |
 | `esdeck bootstrap` | Install ES-DE/RetroArch/emulators, create the ROM tree (dry run by default) |
 | `esdeck scan <dir>` | Show what esdeck thinks each dropped game is, and why |

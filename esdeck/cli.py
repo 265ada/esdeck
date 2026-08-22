@@ -346,7 +346,7 @@ def cmd_link(args) -> int:
         values["MediaDirectory"] = cfg.media_dir
     try:
         changes = config.write_es_settings(Path(cfg.es_config_dir), values,
-                                           dry_run=not args.yes)
+                                           dry_run=not args.yes, create=args.create)
     except FileNotFoundError as exc:
         _p(f"error: {exc}")
         return 2
@@ -472,6 +472,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("link", help="point ES-DE's settings at esdeck's ROM directory")
     p.add_argument("--yes", action="store_true", help="write (default is a dry run)")
+    p.add_argument("--create", action="store_true",
+                   help="write a minimal es_settings.xml if ES-DE has never been launched")
     p.set_defaults(func=cmd_link)
 
     p = sub.add_parser("profile", help="share settings between computers")

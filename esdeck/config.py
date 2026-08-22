@@ -76,15 +76,28 @@ def es_settings_path(es_config_dir: Path) -> Path:
     return nested if nested.is_file() or not flat.is_file() else flat
 
 
-def write_es_settings(es_config_dir: Path, values: dict, *, dry_run: bool = False) -> list[str]:
+def write_es_settings(es_config_dir: Path, values: dict, *, dry_run: bool = False,
+                      create: bool = False) -> list[str]:
     """Set values in es_settings.xml in place, keeping every other line intact.
 
     ES-DE rewrites this file when it exits, so it must not be running.
-    Returns a description of each change made.
+
+    With create=True a minimal file is written when none exists yet - ES-DE
+    only creates its settings on first launch, and the file is a flat list of
+    elements with no root wrapper, so ES-DE reads our entries and fills in the
+    rest of its defaults itself. Returns a description of each change made.
     """
     path = es_settings_path(Path(es_config_dir))
     if not path.is_file():
-        raise FileNotFoundError(f"{path} - launch ES-DE once so it writes its settings")
+        if not create:
+            raise FileNotFoundError(f"{path} - launch ES-DE once so it writes its settings")
+        changes = [f"created {path}"] + [f"{k}: -> {v!r}" for k, v in values.items()]
+        if not dry_run:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            body = "".join(f'<string name="{k}" value="{v}" />\n' for k, v in values.items())
+            path.write_text('<?xml version="1.0"?>\n' + body, encoding="utf-8")
+        return changes
+
     text = path.read_text(encoding="utf-8", errors="replace")
     changes = []
 
