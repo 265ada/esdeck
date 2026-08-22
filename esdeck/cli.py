@@ -296,7 +296,12 @@ def cmd_sync(args) -> int:
 def cmd_cores(args) -> int:
     """Install the RetroArch cores needed by the systems that have games."""
     cfg = config.load()
-    cores_mod.run(Path(cfg.rom_dir), only=args.core, dry_run=not args.yes, log=_p)
+    only = args.core
+    if args.all:
+        only = cores_mod.all_cores()
+    elif args.common:
+        only = list(cores_mod.COMMON_CORES)
+    cores_mod.run(Path(cfg.rom_dir), only=only, dry_run=not args.yes, log=_p)
     if not args.yes:
         _p("\nDRY RUN. Re-run with --yes to download from the libretro buildbot.")
     return 0
@@ -466,6 +471,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("cores", help="install RetroArch cores for your systems")
     p.add_argument("--core", action="append", help="specific core name (repeatable)")
+    p.add_argument("--common", action="store_true",
+                   help="install a starter set covering the common systems")
+    p.add_argument("--all", action="store_true", help="install every core esdeck knows")
     p.add_argument("--yes", action="store_true", help="download (default is a dry run)")
     p.set_defaults(func=cmd_cores)
 

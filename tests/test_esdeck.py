@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import config, esde, launcher, plan, readme_parse, scan, sniff  # noqa: E402
+from esdeck import config, cores, esde, launcher, plan, readme_parse, scan  # noqa: E402
+from esdeck import sniff  # noqa: E402
 from esdeck import systems  # noqa: E402
 
 
@@ -611,6 +612,41 @@ class TestMultiDiscFolders(ScanFixture):
         item = list(self.items().values())[0]
         self.assertEqual(item.system, "psx")
         self.assertEqual(item.confidence, "high")
+
+
+class TestCores(unittest.TestCase):
+    """Core names are downloaded by name, so a typo is a silent 404."""
+
+    def test_core_names_look_like_buildbot_names(self):
+        for system, core in cores.SYSTEM_CORES.items():
+            self.assertIsInstance(core, str, system)
+            if core:
+                self.assertRegex(core, r"^[a-z0-9_]+$",
+                                 f"{system} -> {core!r} is not a buildbot core name")
+
+    def test_all_cores_is_deduplicated_and_drops_blanks(self):
+        got = [c for c in cores.all_cores() if c]
+        self.assertEqual(len(got), len(set(got)))
+        self.assertNotIn("", cores.all_cores() and [c for c in cores.all_cores() if c])
+
+    def test_common_cores_are_all_mapped_somewhere(self):
+        mapped = set(cores.SYSTEM_CORES.values())
+        for core in cores.COMMON_CORES:
+            self.assertIn(core, mapped)
+
+    def test_url_shape(self):
+        self.assertTrue(cores.core_url("snes9x").endswith(
+            "/snes9x_libretro.dll.zip"))
+
+    def test_cores_needed_only_for_populated_systems(self):
+        with tempfile.TemporaryDirectory() as td:
+            roms = Path(td)
+            (roms / "snes").mkdir()
+            (roms / "n64").mkdir()
+            touch(roms / "n64" / "game.n64")
+            needed = cores.cores_for_systems(roms)
+            self.assertIn("mupen64plus_next", needed)
+            self.assertNotIn("snes9x", needed)   # folder exists but is empty
 
 
 class TestEsDeSystemTable(unittest.TestCase):

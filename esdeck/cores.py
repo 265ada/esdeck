@@ -21,31 +21,81 @@ USER_AGENT = "esdeck/0.1 (+https://github.com/265ada/esdeck)"
 TIMEOUT = 120
 MAX_CORE_BYTES = 200 * 1024 * 1024
 
-#: ES-DE system -> the libretro core ES-DE reaches for by default.
+#: ES-DE system -> the libretro core ES-DE reaches for by default. Covers the
+#: systems that have a working libretro core; the rest of ES-DE's 195 systems
+#: either use a standalone emulator or have no core, and are skipped.
+#:
+#: An empty string means "no libretro core on the Windows buildbot" - Vita and
+#: PICO-8 need standalone emulators, and a few obscure cores are not built for
+#: x86_64 Windows at all. Verified against the buildbot's own index.
 SYSTEM_CORES = {
-    "nes": "mesen",
-    "snes": "snes9x",
-    "n64": "mupen64plus_next",
-    "gb": "gambatte",
-    "gbc": "gambatte",
-    "gba": "mgba",
-    "nds": "melonds",
-    "megadrive": "genesis_plus_gx",
-    "mastersystem": "genesis_plus_gx",
-    "gamegear": "genesis_plus_gx",
-    "psx": "swanstation",
-    "psp": "ppsspp",
-    "saturn": "yabause",
-    "dreamcast": "flycast",
-    "pcengine": "mednafen_pce",
-    "atari2600": "stella",
-    "atari7800": "prosystem",
-    "atarilynx": "handy",
-    "neogeo": "fbneo",
-    "arcade": "fbneo",
-    "dos": "dosbox_pure",
-    "scummvm": "scummvm",
+    # Nintendo
+    "nes": "mesen", "famicom": "mesen", "fds": "mesen",
+    "snes": "snes9x", "sfc": "snes9x", "snesna": "snes9x", "satellaview": "snes9x",
+    "sufami": "snes9x",
+    "n64": "mupen64plus_next", "n64dd": "mupen64plus_next",
+    "gb": "gambatte", "gbc": "gambatte", "gba": "mgba",
+    "nds": "melonds", "virtualboy": "mednafen_vb",
+    "gc": "dolphin", "wii": "dolphin",
+    "pokemini": "pokemini", "gameandwatch": "gw",
+    # Sega
+    "megadrive": "genesis_plus_gx", "genesis": "genesis_plus_gx",
+    "mastersystem": "genesis_plus_gx", "gamegear": "genesis_plus_gx",
+    "sg-1000": "genesis_plus_gx", "megacd": "genesis_plus_gx",
+    "segacd": "genesis_plus_gx", "sega32x": "picodrive",
+    "saturn": "mednafen_saturn", "dreamcast": "flycast",
+    # Sony
+    "psx": "swanstation", "psp": "ppsspp", "psvita": "",
+    # NEC
+    "pcengine": "mednafen_pce", "pcenginecd": "mednafen_pce",
+    "tg16": "mednafen_pce", "tg-cd": "mednafen_pce",
+    "supergrafx": "mednafen_supergrafx", "pcfx": "mednafen_pcfx",
+    # SNK
+    "neogeo": "fbneo", "neogeocd": "neocd",
+    "ngp": "mednafen_ngp", "ngpc": "mednafen_ngp",
+    # Atari
+    "atari2600": "stella", "atari5200": "atari800", "atari7800": "prosystem",
+    "atarilynx": "handy", "atarijaguar": "virtualjaguar", "atarist": "hatari",
+    "atari800": "atari800",
+    # Bandai / other handhelds
+    "wonderswan": "mednafen_wswan", "wonderswancolor": "mednafen_wswan",
+    # Computers
+    "c64": "vice_x64", "vic20": "vice_xvic", "plus4": "vice_xplus4",
+    "amiga": "puae", "amiga600": "puae", "amiga1200": "puae", "cdtv": "puae",
+    "cd32": "puae", "msx": "bluemsx", "msx2": "bluemsx", "msxturbor": "bluemsx",
+    "zxspectrum": "fuse", "zx81": "81", "amstradcpc": "cap32",
+    "x68000": "px68k", "pc98": "np2kai", "apple2": "mame",
+    # Consoles, misc
+    "3do": "opera", "colecovision": "bluemsx", "intellivision": "freeintv",
+    "vectrex": "vecx", "channelf": "freechaf", "odyssey2": "o2em",
+    "videopac": "o2em", "arcadia": "mame", "astrocade": "mame",
+    "supervision": "potator", "gamate": "", "creativision": "",
+    # Arcade
+    "arcade": "fbneo", "mame": "mame", "fbneo": "fbneo", "cps1": "fbneo",
+    "cps2": "fbneo", "cps3": "fbneo", "daphne": "mame",
+    # PC / engines / ports
+    "dos": "dosbox_pure", "pc": "dosbox_pure", "scummvm": "scummvm",
+    "doom": "prboom", "quake": "tyrquake", "wolfenstein3d": "ecwolf",
+    "lowresnx": "lowresnx", "uzebox": "uzem", "tic80": "tic80",
+    "pico8": "", "solarus": "", "easyrpg": "easyrpg",
 }
+
+#: Cores worth having on any machine, before a single game is added. Chosen for
+#: coverage of the common systems at a sane download size - fbneo alone is 60 MB,
+#: so arcade is deliberately left to --all or to the first arcade game added.
+COMMON_CORES = (
+    "mesen", "snes9x", "mupen64plus_next", "gambatte", "mgba", "melonds",
+    "genesis_plus_gx", "swanstation", "flycast", "mednafen_pce", "dosbox_pure",
+)
+
+
+def all_cores() -> list:
+    """Every core esdeck knows how to fetch, de-duplicated."""
+    out = []
+    for core in SYSTEM_CORES.values():
+        if core not in out:
+            out.append(core)
+    return out
 
 
 def retroarch_dirs() -> tuple[Path | None, Path | None]:
@@ -131,6 +181,7 @@ def run(rom_dir: Path, *, only: list[str] | None = None, dry_run: bool = True,
     if not wanted:
         log(f"No cores needed: nothing in {rom_dir} maps to a libretro core.")
         return 0
+    wanted = [c for c in wanted if c]
     log(f"RetroArch: {base}")
     log(f"Cores dir: {cores_dir}  ({len(installed_cores(cores_dir))} installed)")
     ok = 0

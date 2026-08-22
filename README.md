@@ -33,7 +33,7 @@ It asks one question - where your games should live - then does everything else:
 | Emulators | Installs ES-DE, RetroArch and 7-Zip via winget |
 | ROM tree | Creates `ROMs\<system>\` for every supported system |
 | ES-DE | Writes your ROM path into its settings so it finds the library |
-| Cores | Downloads the RetroArch cores your systems need |
+| Cores | Downloads **all 55** RetroArch cores esdeck knows about (~770 MB) |
 | Shortcut | Puts **Sort Games** on your Desktop |
 | Check | Runs `esdeck doctor` and prints any remaining problem with its fix |
 
@@ -42,8 +42,11 @@ Every step checks before it acts, so re-running it is safe.
 For scripted or unattended installs, pass the folder as an argument:
 
 ```bash
-install.bat D:\Games --no-cores
+install.bat D:\Games --common-cores
 ```
+
+Flags, in any order: `--common-cores` (11 cores instead of 55), `--no-cores`,
+`--all-emulators` (adds Dolphin, PCSX2, DuckStation and PPSSPP alongside RetroArch).
 
 ## Daily use
 
@@ -191,6 +194,7 @@ esdeck profile import --file esdeck-profile.json
 | `esdeck scan <dir>` | Show what esdeck thinks each dropped game is, and why |
 | `esdeck plan <dir>` | Write a reviewable `esdeck-plan.json` |
 | `esdeck apply <plan>` | Execute the safe half of a plan (dry run by default) |
+| `esdeck cores` | Install RetroArch cores (`--all`, `--common`, or just what your systems need) |
 | `esdeck launchers` | Create `.bat` launchers so ES-DE can see installed PC games |
 | `esdeck link` | Point ES-DE's own `ROMDirectory` at your esdeck library |
 | `esdeck profile export/import` | Move settings between computers |

@@ -48,8 +48,20 @@ if not defined PY (
 for /f "tokens=*" %%v in ('%PY% --version 2^>^&1') do echo  [ok] %%v
 
 rem ---------------------------------------------------------------- paths ---
-rem Folder may be passed as the first argument:  install.bat D:\Games
-set "GAMEROOT=%~1"
+rem Arguments, in any order:
+rem   install.bat [game folder] [--no-cores] [--common-cores] [--all-emulators]
+rem By default every core esdeck knows about is downloaded.
+set "GAMEROOT="
+set "OPT_NOCORES="
+set "OPT_COMMON="
+set "OPT_ALLEMU="
+for %%a in (%*) do (
+    set "ARG=%%~a"
+    if /i "!ARG!"=="--no-cores"      set "OPT_NOCORES=1"
+    if /i "!ARG!"=="--common-cores"  set "OPT_COMMON=1"
+    if /i "!ARG!"=="--all-emulators" set "OPT_ALLEMU=1"
+    if not "!ARG:~0,2!"=="--" if not defined GAMEROOT set "GAMEROOT=!ARG!"
+)
 if defined GAMEROOT set "UNATTENDED=1"
 if not defined GAMEROOT (
     echo.
@@ -96,9 +108,13 @@ echo  [ok] configured
 
 rem ------------------------------------------------- emulators + ROM tree ---
 echo.
-echo  [..] Installing ES-DE, RetroArch and 7-Zip (this can take a few minutes)
+echo  [..] Installing ES-DE, RetroArch and 7-Zip ^(this can take a few minutes^)
 echo.
-%ESDECK% bootstrap --yes
+if defined OPT_ALLEMU (
+    %ESDECK% bootstrap --all-emulators --yes
+) else (
+    %ESDECK% bootstrap --yes
+)
 echo.
 
 rem ------------------------------------------------------------ ES-DE link ---
@@ -107,17 +123,18 @@ echo  [..] Pointing ES-DE at %ROMDIR%
 echo.
 
 rem ----------------------------------------------------------------- cores ---
-echo  RetroArch ships with no emulator cores, so nothing can launch until
-echo  some are downloaded from the official libretro build server.
-echo.
-set "GETCORES="
-if /i "%~2"=="--no-cores" set "GETCORES=n"
-if not defined GETCORES set /p "GETCORES=  Download cores for the systems you have? [Y/n] "
-if /i "%GETCORES%"=="n" (
-    echo  skipped - run "esdeck cores --yes" later, or use RetroArch's
-    echo  Online Updater ^> Core Downloader.
+rem RetroArch ships with no emulator cores, so nothing can launch without them.
+rem A fresh library is empty, so "which cores do my systems need" would answer
+rem "none" - install a starter set covering the common systems instead.
+if defined OPT_NOCORES (
+    echo  [..] Skipping cores. Run "esdeck cores --all --yes" when you want them.
+) else if defined OPT_COMMON (
+    echo  [..] Downloading cores for the common systems only
+    %ESDECK% cores --common --yes
 ) else (
-    %ESDECK% cores --yes
+    echo  [..] Downloading every emulator core esdeck knows about
+    echo       ^(from the official libretro build server - a few hundred MB^)
+    %ESDECK% cores --all --yes
 )
 echo.
 
