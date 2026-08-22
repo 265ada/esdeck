@@ -53,21 +53,31 @@ def winget_installed(package_id: str) -> bool:
     return package_id.lower() in out.stdout.lower()
 
 
-def install_package(key: str, *, dry_run: bool = True, log=print) -> bool:
+def install_package(key: str, *, dry_run: bool = True, repair: bool = False,
+                    log=print) -> bool:
+    """Install a package, or reinstall it over the top when repairing.
+
+    Repair uses winget's --force, which reinstalls without uninstalling first.
+    That matters: uninstalling RetroArch would take your saves, save states,
+    controller bindings, playlists and the BIOS files in system/ with it, and
+    those are not things a setup script should throw away.
+    """
     package_id, label = PACKAGES[key]
     if not have_winget():
         log(f"  SKIP   {label}: winget not available - install it manually")
         return False
-    if winget_installed(package_id):
+    already = winget_installed(package_id)
+    if already and not repair:
         log(f"  ok     {label} already installed")
         return True
-    log(f"  install {label} ({package_id})")
+    log(f"  {'reinstall' if already else 'install'} {label} ({package_id})")
     if dry_run:
         return True
-    proc = subprocess.run(
-        ["winget", "install", "--id", package_id, "--exact", "--silent",
-         "--accept-package-agreements", "--accept-source-agreements"],
-        text=True)
+    cmd = ["winget", "install", "--id", package_id, "--exact", "--silent",
+           "--accept-package-agreements", "--accept-source-agreements"]
+    if already:
+        cmd.append("--force")
+    proc = subprocess.run(cmd, text=True)
     if proc.returncode != 0:
         log(f"  ERROR  {label}: {_winget_error(proc.returncode)} [{package_id}]")
     return proc.returncode == 0
@@ -118,13 +128,64 @@ def make_rom_tree(cfg: Config, *, dry_run: bool = True, log=print) -> list[Path]
     return made
 
 
-def run(cfg: Config, *, packages=DEFAULT_PACKAGES, dry_run: bool = True, log=print) -> None:
+#: User data that must survive a repair - saves, bindings, playlists, BIOS.
+RETROARCH_USER_DATA = ("retroarch.cfg", "saves", "states", "system", "playlists",
+                       "config", "cheats", "screenshots")
+
+
+def backup_user_data(dest: Path, *, dry_run: bool = True, log=print) -> Path | None:
+    """Copy RetroArch and ES-DE user data somewhere safe before a repair."""
+    base, _ = None, None
+    try:
+        from . import cores as cores_mod
+        base, _ = cores_mod.retroarch_dirs()
+    except Exception:                                   # noqa: BLE001
+        base = None
+    dest = Path(dest)
+    log(f"  backup -> {dest}")
+    if dry_run:
+        return dest
+    dest.mkdir(parents=True, exist_ok=True)
+    if base:
+        for name in RETROARCH_USER_DATA:
+            src = base / name
+            if not src.exists():
+                continue
+            target = dest / "RetroArch" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                if src.is_dir():
+                    shutil.copytree(src, target, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, target)
+            except OSError as exc:
+                log(f"  WARN   could not back up {name}: {exc}")
+    es_dir = Path.home() / "ES-DE"
+    if es_dir.is_dir():
+        for name in ("settings", "collections", "gamelists", "custom_systems", "controllers"):
+            src = es_dir / name
+            if src.is_dir():
+                try:
+                    shutil.copytree(src, dest / "ES-DE" / name, dirs_exist_ok=True)
+                except OSError as exc:
+                    log(f"  WARN   could not back up ES-DE/{name}: {exc}")
+    return dest
+
+
+def run(cfg: Config, *, packages=DEFAULT_PACKAGES, dry_run: bool = True,
+        repair: bool = False, log=print) -> None:
+    if repair:
+        from datetime import datetime
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        log("Backing up existing settings before reinstalling:")
+        backup_user_data(Path(cfg.rom_dir).parent / f"esdeck-backup-{stamp}",
+                         dry_run=dry_run, log=log)
     log("Packages:")
     for key in packages:
         if key not in PACKAGES:
             log(f"  SKIP   unknown package {key!r}")
             continue
-        install_package(key, dry_run=dry_run, log=log)
+        install_package(key, dry_run=dry_run, repair=repair, log=log)
     log("ROM directories:")
     make_rom_tree(cfg, dry_run=dry_run, log=log)
     log("Install dir:")

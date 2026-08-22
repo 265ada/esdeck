@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import config, cores, esde, launcher, plan, readme_parse, scan  # noqa: E402
+from esdeck import bios, config, cores, esde, launcher, plan, readme_parse  # noqa: E402
+from esdeck import scan, tidy  # noqa: E402
 from esdeck import sniff  # noqa: E402
 from esdeck import systems  # noqa: E402
 
@@ -675,6 +676,128 @@ class TestEsDeSystemTable(unittest.TestCase):
             p = Path(td) / "es_systems.xml"
             p.write_text("<systemList><system><name>", encoding="utf-8")
             self.assertEqual(esde.parse(p), {})
+
+
+class TestBios(unittest.TestCase):
+    """BIOS requirements come from RetroArch's own core info files."""
+
+    INFO = "\n".join([
+        'display_name = "Sega Saturn"',
+        'firmware_count = 2',
+        'firmware0_desc = "sega_101.bin (Saturn JP BIOS)"',
+        'firmware0_path = "sega_101.bin"',
+        'firmware0_opt = "false"',
+        'firmware1_desc = "mpr-17933.bin (Saturn US/EU BIOS)"',
+        'firmware1_path = "mpr-17933.bin"',
+        'firmware1_opt = "false"',
+        'notes = "(!) sega_101.bin (md5): 85ec9ca47d8f6807718151cbcca8b964"',
+    ])
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.d = Path(self.td.name)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_parses_firmware_from_info_file(self):
+        p = self.d / "mednafen_saturn_libretro.info"
+        p.write_text(self.INFO, encoding="utf-8")
+        reqs = bios.parse_info(p)
+        self.assertEqual([b.name for b in reqs], ["sega_101.bin", "mpr-17933.bin"])
+        self.assertTrue(all(b.required for b in reqs))
+
+    def test_md5_is_taken_from_the_notes_field(self):
+        p = self.d / "x_libretro.info"
+        p.write_text(self.INFO, encoding="utf-8")
+        reqs = bios.parse_info(p)
+        self.assertEqual(reqs[0].md5, "85ec9ca47d8f6807718151cbcca8b964")
+        self.assertIsNone(reqs[1].md5)
+
+    def test_optional_firmware_is_not_required(self):
+        p = self.d / "y_libretro.info"
+        p.write_text("\n".join(['firmware_count = 1',
+                                'firmware0_path = "gba_bios.bin"',
+                                'firmware0_opt = "true"']), encoding="utf-8")
+        self.assertFalse(bios.parse_info(p)[0].required)
+
+    def test_info_file_without_firmware_yields_nothing(self):
+        p = self.d / "z_libretro.info"
+        p.write_text('display_name = "Thing"', encoding="utf-8")
+        self.assertEqual(bios.parse_info(p), ())
+
+    def test_missing_required_bios_is_blocking(self):
+        b = bios.BiosFile("dc_boot.bin", None, True)
+        st = [bios.BiosStatus("dreamcast", b, present=False)]
+        self.assertEqual(len(bios.blocking(st)), 1)
+
+    def test_missing_optional_bios_is_not_blocking(self):
+        """A PS1 game runs without a BIOS; nagging about it would be noise."""
+        b = bios.BiosFile("gba_bios.bin", None, False)
+        st = [bios.BiosStatus("gba", b, present=False)]
+        self.assertEqual(bios.blocking(st), [])
+
+    def test_any_one_regional_bios_satisfies_the_system(self):
+        jp = bios.BiosFile("sega_101.bin", None, True)
+        us = bios.BiosFile("mpr-17933.bin", None, True)
+        st = [bios.BiosStatus("saturn", jp, present=False),
+              bios.BiosStatus("saturn", us, present=True)]
+        self.assertEqual(bios.blocking(st), [])
+
+    def test_wrong_checksum_is_always_blocking(self):
+        b = bios.BiosFile("dc_boot.bin", "abc", True)
+        st = [bios.BiosStatus("dreamcast", b, present=True, checksum_ok=False)]
+        self.assertEqual(len(bios.blocking(st)), 1)
+        self.assertEqual(st[0].state, "WRONG FILE")
+
+
+class TestTidy(unittest.TestCase):
+    """Repairing a library built before the one-entry-per-game rules."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.roms = Path(self.td.name) / "ROMs"
+        (self.roms / "psx").mkdir(parents=True)
+        (self.roms / "snes").mkdir(parents=True)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_bin_beside_a_cue_is_flagged_as_data(self):
+        (self.roms / "psx" / "Tekken 3.cue").write_text('FILE "Tekken 3.bin" BINARY')
+        touch(self.roms / "psx" / "Tekken 3.bin")
+        found = tidy.redundant_entries(self.roms)
+        self.assertEqual([p.name for p, _ in found], ["Tekken 3.bin"])
+
+    def test_cue_itself_is_never_flagged(self):
+        (self.roms / "psx" / "Tekken 3.cue").write_text("x")
+        touch(self.roms / "psx" / "Tekken 3.bin")
+        self.assertNotIn("Tekken 3.cue",
+                         [p.name for p, _ in tidy.redundant_entries(self.roms)])
+
+    def test_disc_folder_behind_an_m3u_is_flagged(self):
+        (self.roms / "psx" / "Chrono Cross.m3u").write_text("x")
+        (self.roms / "psx" / "Chrono Cross").mkdir()
+        found = tidy.unhidden_disc_folders(self.roms)
+        self.assertEqual([p.name for p, _ in found], ["Chrono Cross"])
+
+    def test_same_game_in_two_formats_is_a_duplicate(self):
+        touch(self.roms / "snes" / "Super Metroid.sfc")
+        touch(self.roms / "snes" / "Super Metroid.zip")
+        dupes = tidy.duplicates(self.roms)
+        self.assertEqual(len(dupes), 1)
+        self.assertEqual(len(dupes[0].paths), 2)
+
+    def test_one_copy_is_not_a_duplicate(self):
+        touch(self.roms / "snes" / "Super Metroid.sfc")
+        self.assertEqual(tidy.duplicates(self.roms), [])
+
+    def test_same_title_under_two_systems_is_reported(self):
+        touch(self.roms / "snes" / "Turok.sfc")
+        (self.roms / "n64").mkdir()
+        touch(self.roms / "n64" / "Turok.n64")
+        cross = tidy.cross_system_duplicates(self.roms)
+        self.assertEqual(len(cross), 1)
 
 
 if __name__ == "__main__":

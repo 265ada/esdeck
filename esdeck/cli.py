@@ -7,6 +7,8 @@
     esdeck apply <plan>    execute the safe half of a plan
     esdeck sync            do all of the above in one go (the usual command)
     esdeck cores           install RetroArch cores for your systems
+    esdeck bios            check the BIOS files your systems need
+    esdeck tidy            repair an existing library and find duplicates
     esdeck launchers       create .bat launchers for installed PC games
     esdeck link            point ES-DE at esdeck's ROM directory
     esdeck profile         export/import machine-independent settings
@@ -21,8 +23,10 @@ import sys
 from pathlib import Path
 
 from . import apply as apply_mod
+from . import bios as bios_mod
 from . import bootstrap, config, cores as cores_mod, launcher, plan as plan_mod
 from . import scan as scan_mod
+from . import tidy as tidy_mod
 from .systems import BY_KEY
 
 DEFAULT_PLAN = "esdeck-plan.json"
@@ -68,7 +72,7 @@ def cmd_bootstrap(args) -> int:
     if args.all_emulators:
         pkgs = list(bootstrap.PACKAGES)
     _p(f"{'DRY RUN - ' if not args.yes else ''}bootstrapping with ROM dir {cfg.rom_dir}")
-    bootstrap.run(cfg, packages=pkgs, dry_run=not args.yes, log=_p)
+    bootstrap.run(cfg, packages=pkgs, dry_run=not args.yes, repair=args.repair, log=_p)
     if not args.yes:
         _p("\nRe-run with --yes to actually install.")
     return 0
@@ -96,6 +100,8 @@ def _describe(item) -> None:
         if h.commands:
             bits.append(f"{len(h.commands)} suggested command(s)")
         _p(f"       readme {h.source}: " + ("; ".join(bits) if bits else "no actionable hints"))
+    for w in bios_mod.warn_lines(item.system) if item.system else []:
+        _p(f"       BIOS: {w}")
 
 
 def _sources(args, cfg) -> list[Path]:
@@ -292,6 +298,86 @@ def cmd_sync(args) -> int:
     return 1 if errors else 0
 
 
+# --------------------------------------------------------------------- tidy
+def cmd_tidy(args) -> int:
+    """Repair a library: one entry per game, and report duplicate copies."""
+    cfg = config.load()
+    rom_dir = Path(cfg.rom_dir)
+    if not rom_dir.is_dir():
+        _p(f"No ROM directory at {rom_dir}")
+        return 2
+
+    fixes = tidy_mod.redundant_entries(rom_dir) + tidy_mod.unhidden_disc_folders(rom_dir)
+    _p(f"{'Hiding' if args.yes else 'Would hide'} {len(fixes)} item(s) so each game "
+       f"shows once in ES-DE")
+    for path, why in fixes:
+        _p(f"  {path.relative_to(rom_dir)}  ({why})")
+        if args.yes:
+            apply_mod.set_hidden(path)
+
+    dupes = tidy_mod.duplicates(rom_dir)
+    if dupes:
+        _p("")
+        _p(f"{len(dupes)} duplicate game(s) - same title, more than one copy:")
+        for d in dupes:
+            _p(f"  {d.describe()}")
+        _p("  Not touched: which copy to keep is your call.")
+
+    cross = tidy_mod.cross_system_duplicates(rom_dir)
+    if cross:
+        _p("")
+        _p(f"{len(cross)} title(s) filed under more than one system:")
+        for d in cross:
+            _p(f"  {d.describe()}")
+
+    if not fixes and not dupes and not cross:
+        _p("Nothing to do - the library is already tidy.")
+    elif fixes and not args.yes:
+        _p("")
+        _p("DRY RUN. Re-run with --yes to hide the data files.")
+    return 0
+
+
+# --------------------------------------------------------------------- bios
+def cmd_bios(args) -> int:
+    """Report which BIOS files your systems need and whether you have them."""
+    cfg = config.load()
+    sysdir = bios_mod.system_dir()
+    if sysdir is None:
+        _p("RetroArch not found - install it first (esdeck bootstrap --yes)")
+        return 2
+
+    keys = [args.system] if args.system else sorted(
+        d.name for d in Path(cfg.rom_dir).iterdir()
+        if d.is_dir() and any(d.iterdir()) and bios_mod.requirements_for(d.name))
+    if not keys:
+        _p("No systems in your library need a BIOS file.")
+        return 0
+
+    _p(f"BIOS folder: {sysdir}\n")
+    problems = 0
+    for key in keys:
+        statuses = bios_mod.check_system(key)
+        if not statuses:
+            continue
+        blockers = bios_mod.blocking(statuses)
+        problems += len(blockers)
+        _p(f"{key}  {'PROBLEM' if blockers else 'ok'}")
+        for st in statuses:
+            if args.all or st.state != "missing (optional)":
+                note = f"  ({st.bios.note})" if st.bios.note else ""
+                _p(f"    {st.state:20} {st.bios.name}{note}")
+        for w in bios_mod.warn_lines(key):
+            _p(f"    -> {w}")
+
+    if problems:
+        _p("")
+        _p("esdeck does not download BIOS files - they are copyrighted console")
+        _p("firmware, which is why RetroArch's own updater does not fetch them either.")
+        _p(f"Put the files named above into {sysdir} and re-run this to verify them.")
+    return 1 if problems else 0
+
+
 # -------------------------------------------------------------------- cores
 def cmd_cores(args) -> int:
     """Install the RetroArch cores needed by the systems that have games."""
@@ -422,6 +508,16 @@ def cmd_doctor(args) -> int:
     if settings.get("ShowHiddenFiles") == "true":
         check(False, "ES-DE hides esdeck's data files (ShowHiddenFiles)",
               "esdeck link --yes  (otherwise every disc of a game is listed twice)")
+    sysdir = bios_mod.system_dir()
+    if sysdir and Path(cfg.rom_dir).is_dir():
+        missing = []
+        for d in sorted(Path(cfg.rom_dir).iterdir()):
+            if d.is_dir() and any(d.iterdir()):
+                missing.extend(bios_mod.blocking(bios_mod.check_system(d.name)))
+        check(not missing,
+              f"BIOS files present for your systems ({len(missing)} missing)"
+              if missing else "BIOS files present for your systems",
+              "esdeck bios  (lists the exact files; esdeck cannot download them)")
     check(bootstrap.have_winget(), "winget available", "install App Installer from the MS Store")
     _p(f"\n{'No problems found.' if not problems else f'{problems} problem(s) found.'}")
     return 1 if problems else 0
@@ -445,6 +541,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("bootstrap", help="install ES-DE/emulators and create the ROM tree")
     p.add_argument("--packages", nargs="*", help=f"subset of {', '.join(bootstrap.PACKAGES)}")
     p.add_argument("--all-emulators", action="store_true")
+    p.add_argument("--repair", action="store_true",
+                   help="reinstall over an existing install (backs up saves/config first)")
     p.add_argument("--yes", action="store_true", help="actually install (default is a dry run)")
     p.set_defaults(func=cmd_bootstrap)
 
@@ -468,6 +566,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unsafe-any-path", action="store_true",
                    help="disable the write-outside-ROM-dir guard")
     p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("tidy", help="repair an existing library and find duplicates")
+    p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")
+    p.set_defaults(func=cmd_tidy)
+
+    p = sub.add_parser("bios", help="check BIOS files your systems need")
+    p.add_argument("--system", help="check one system only")
+    p.add_argument("--all", action="store_true", help="include optional files")
+    p.set_defaults(func=cmd_bios)
 
     p = sub.add_parser("cores", help="install RetroArch cores for your systems")
     p.add_argument("--core", action="append", help="specific core name (repeatable)")

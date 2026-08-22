@@ -165,6 +165,45 @@ from its own directory. When several executables are plausible it lists them and
 esdeck launchers --yes
 ```
 
+## BIOS files
+
+Some systems will not run without console firmware - Saturn, Dreamcast, Mega CD,
+PS2 and others. **esdeck does not download BIOS files.** They are copyrighted
+firmware, which is why RetroArch's own Online Updater fetches cores, shaders and
+databases but deliberately not BIOS either.
+
+What esdeck does instead is remove the guesswork. Drop a game in and it tells you
+before you wonder why it will not start:
+
+```
+OK   Panzer Dragoon  ->  saturn  (2 files, 512 MB)
+       BIOS: needs BIOS sega_101.bin or mpr-17933.bin in C:\RetroArch-Win64\system
+             - without it this game will most likely not start
+```
+
+The requirements are read from **RetroArch's own core info files**, which declare
+each core's firmware with its filename, whether it is optional, and often an md5.
+That keeps it universal and current: it covers whatever cores are installed rather
+than a list baked into esdeck. `esdeck bios` reports every system, and verifies the
+files you supply by checksum so a bad dump is caught as `WRONG FILE` rather than
+failing mysteriously at launch.
+
+Optional firmware is not nagged about - a PS1 game runs fine without a BIOS, so
+esdeck stays quiet about it.
+
+## Repairing an existing setup
+
+`esdeck tidy` fixes a library built by hand, by another tool, or before these rules
+existed: it hides the data half of multi-file games so each game shows once, and
+reports duplicates - the same title in two formats, or filed under two systems. It
+never deletes a game; which copy to keep is your call.
+
+`install.bat --repair` reinstalls ES-DE, RetroArch and 7-Zip over an existing
+install. It uses winget's `--force` rather than uninstalling first, and backs up
+your RetroArch saves, save states, controller bindings, playlists and `system/`
+folder plus your ES-DE settings to a timestamped folder beforehand. An existing
+install is otherwise detected and reused - it does not block or hang setup.
+
 ## Multiple computers
 
 Machine-specific paths live in `~/.esdeck/config.json` and are never shared. Everything else
@@ -194,6 +233,8 @@ esdeck profile import --file esdeck-profile.json
 | `esdeck scan <dir>` | Show what esdeck thinks each dropped game is, and why |
 | `esdeck plan <dir>` | Write a reviewable `esdeck-plan.json` |
 | `esdeck apply <plan>` | Execute the safe half of a plan (dry run by default) |
+| `esdeck bios` | Report which BIOS files your systems need and verify the ones you have |
+| `esdeck tidy` | Repair an existing library and find duplicate copies |
 | `esdeck cores` | Install RetroArch cores (`--all`, `--common`, or just what your systems need) |
 | `esdeck launchers` | Create `.bat` launchers so ES-DE can see installed PC games |
 | `esdeck link` | Point ES-DE's own `ROMDirectory` at your esdeck library |

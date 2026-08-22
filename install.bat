@@ -50,16 +50,19 @@ for /f "tokens=*" %%v in ('%PY% --version 2^>^&1') do echo  [ok] %%v
 rem ---------------------------------------------------------------- paths ---
 rem Arguments, in any order:
 rem   install.bat [game folder] [--no-cores] [--common-cores] [--all-emulators]
+rem                     [--repair]
 rem By default every core esdeck knows about is downloaded.
 set "GAMEROOT="
 set "OPT_NOCORES="
 set "OPT_COMMON="
 set "OPT_ALLEMU="
+set "OPT_REPAIR="
 for %%a in (%*) do (
     set "ARG=%%~a"
     if /i "!ARG!"=="--no-cores"      set "OPT_NOCORES=1"
     if /i "!ARG!"=="--common-cores"  set "OPT_COMMON=1"
     if /i "!ARG!"=="--all-emulators" set "OPT_ALLEMU=1"
+    if /i "!ARG!"=="--repair"        set "OPT_REPAIR=1"
     if not "!ARG:~0,2!"=="--" if not defined GAMEROOT set "GAMEROOT=!ARG!"
 )
 if defined GAMEROOT set "UNATTENDED=1"
@@ -110,11 +113,10 @@ rem ------------------------------------------------- emulators + ROM tree ---
 echo.
 echo  [..] Installing ES-DE, RetroArch and 7-Zip ^(this can take a few minutes^)
 echo.
-if defined OPT_ALLEMU (
-    %ESDECK% bootstrap --all-emulators --yes
-) else (
-    %ESDECK% bootstrap --yes
-)
+set "BOOTFLAGS=--yes"
+if defined OPT_ALLEMU set "BOOTFLAGS=%BOOTFLAGS% --all-emulators"
+if defined OPT_REPAIR set "BOOTFLAGS=%BOOTFLAGS% --repair"
+%ESDECK% bootstrap %BOOTFLAGS%
 echo.
 
 rem ------------------------------------------------------------ ES-DE link ---
@@ -136,6 +138,11 @@ if defined OPT_NOCORES (
     echo       ^(from the official libretro build server - a few hundred MB^)
     %ESDECK% cores --all --yes
 )
+echo.
+
+rem ------------------------------------------------------------------ tidy ---
+rem An existing library may predate these rules, or have been built by hand.
+%ESDECK% tidy --yes
 echo.
 
 rem -------------------------------------------------------------- shortcut ---
