@@ -5,6 +5,7 @@
     esdeck scan <dir>      show what esdeck thinks each dropped game is
     esdeck plan <dir>      write a reviewable plan.json
     esdeck apply <plan>    execute the safe half of a plan
+    esdeck sync            do all of the above in one go (the usual command)
     esdeck cores           install RetroArch cores for your systems
     esdeck launchers       create .bat launchers for installed PC games
     esdeck link            point ES-DE at esdeck's ROM directory
@@ -194,6 +195,103 @@ def cmd_apply(args) -> int:
     return 1 if failed else 0
 
 
+# --------------------------------------------------------------------- sync
+def cmd_sync(args) -> int:
+    """The one command: sort what was dropped, then make it launchable.
+
+    Everything it does is a dry run until --yes, and the review-only actions
+    stay review-only - sync never runs an installer or a README command.
+    """
+    cfg = config.load()
+    if not cfg.rom_dir:
+        _p("Not set up yet. Run: esdeck init --rom-dir D:\\ROMs")
+        return 2
+
+    sources = _sources(args, cfg)
+    if not sources:
+        _p("No drop folder configured. Run:")
+        _p(r"  esdeck init --source-dir D:\Games\Incoming")
+        return 2
+
+    header = "esdeck sync" if args.yes else "esdeck sync (DRY RUN)"
+    _p(f"{header}  {', '.join(str(s) for s in sources)} -> {cfg.rom_dir}\n")
+
+    # 1. What is in the drop folder?
+    _p("[1/4] Reading the drop folder")
+    items = []
+    for src in sources:
+        if not src.exists():
+            _p(f"  skip {src}: does not exist")
+            continue
+        items.extend(scan_mod.scan(src))
+    if not items:
+        _p("  nothing to do - the drop folder is empty")
+        return 0
+    if args.system:
+        if args.system not in BY_KEY:
+            _p(f"  unknown system {args.system!r}")
+            return 2
+        for i in items:
+            i.system, i.candidates, i.confidence = args.system, [], "high"
+    for item in items:
+        _describe(item)
+
+    # 2. File them into the library.
+    _p("\n[2/4] Filing games into the library")
+    bundle = plan_mod.build_all(items, cfg)
+    roots = [cfg.rom_dir, cfg.install_dir]
+    manual: list[str] = []
+    unresolved, errors = [], 0
+    for pl in bundle["plans"]:
+        if not pl.get("system"):
+            unresolved.append(pl["name"])
+            continue
+        res = apply_mod.apply_plan(pl, dry_run=not args.yes, roots=roots,
+                                   overwrite=args.overwrite, log=lambda *a: None)
+        errors += len(res.errors)
+        _p(f"  {pl['name']} -> {pl['system']}: {res}")
+        for e in res.errors:
+            _p(f"    ERROR {e}")
+        manual.extend(f"[{pl['name']}] {s}" for s in apply_mod.manual_steps(pl))
+
+    # 3. Cores, so the new systems can actually launch.
+    if args.no_cores:
+        _p("\n[3/4] Cores: skipped (--no-cores)")
+    else:
+        _p("\n[3/4] RetroArch cores")
+        cores_mod.run(Path(cfg.rom_dir), dry_run=not args.yes, log=lambda s: _p(f"  {s}"))
+
+    # 4. Launchers for any PC game that landed as a folder.
+    _p("\n[4/4] PC game launchers")
+    made = 0
+    for g in launcher.scan_install_dir(Path(cfg.install_dir), Path(cfg.rom_dir)):
+        if g["has_launcher"]:
+            continue
+        if not g["candidates"]:
+            _p(f"  SKIP {g['name']}: no game .exe yet (installer not run?)")
+            continue
+        _p("  " + launcher.write_launcher(g["dest"], g["candidates"][0],
+                                          dry_run=not args.yes))
+        made += 1
+    if not made:
+        _p("  nothing to do")
+
+    # What is left for a human.
+    if unresolved:
+        _p(f"\nNeeds a decision - system could not be determined: {', '.join(unresolved)}")
+        _p("  re-run with --system <key>, e.g. esdeck sync --system psx")
+    if manual:
+        _p("\nManual steps (nothing below was executed):")
+        for s in manual:
+            _p(f"  - {s}")
+
+    if not args.yes:
+        _p("\nDRY RUN - nothing was changed. Re-run with --yes to do it.")
+    else:
+        _p("\nDone. Restart ES-DE (or press F5 in it) to see the new games.")
+    return 1 if errors else 0
+
+
 # -------------------------------------------------------------------- cores
 def cmd_cores(args) -> int:
     """Install the RetroArch cores needed by the systems that have games."""
@@ -380,6 +478,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=("export", "import"))
     p.add_argument("--file")
     p.set_defaults(func=cmd_profile)
+
+    p = sub.add_parser("sync", help="do everything: sort the drop folder, then finish the setup")
+    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
+    p.add_argument("--yes", action="store_true", help="actually do it (default is a dry run)")
+    p.add_argument("--overwrite", action="store_true")
+    p.add_argument("--system", help="force a system for every item")
+    p.add_argument("--no-cores", action="store_true", help="skip the RetroArch core step")
+    p.set_defaults(func=cmd_sync)
 
     p = sub.add_parser("doctor", help="check this machine's setup")
     p.set_defaults(func=cmd_doctor)
