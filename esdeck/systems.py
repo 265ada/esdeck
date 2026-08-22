@@ -77,6 +77,23 @@ AMBIGUOUS_EXTS = {
     ".nds": ("nds",),
 }
 
+# Box art, screenshots, videos, manuals. ES-DE lists .png as a valid extension
+# for pico8 and tic80, so without this every screenshot in a collection becomes
+# a "game". Cartridge-in-a-PNG is real but rare; misfiling every image is not a
+# trade worth making, and ES-DE scrapes artwork itself anyway.
+MEDIA_EXTS = (
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff", ".ico",
+    ".svg", ".psd", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".webm", ".mpg",
+    ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".pdf", ".doc", ".docx",
+)
+
+
+def is_media(path) -> bool:
+    """True for artwork, video, audio and manuals - never a game."""
+    from pathlib import Path as _P
+    return _P(path).suffix.lower() in MEDIA_EXTS
+
+
 # Installer / PC-game markers -> the "windows" system, handled as an install job.
 INSTALLER_NAMES = ("setup.exe", "install.exe", "autorun.exe")
 INSTALLER_EXTS = (".exe", ".msi")

@@ -55,6 +55,7 @@ class ScanItem:
     reasons: list[str] = field(default_factory=list)
     archive_contents: dict = field(default_factory=dict)   # rel -> member names
     collection: bool = False     # an archive holding many separate games
+    media_only: bool = False     # artwork/video only - nothing to install
     opaque_archives: list[str] = field(default_factory=list)  # need 7-Zip to inspect
     unrecognized: bool = False   # nothing here looks like a game
 
@@ -63,7 +64,17 @@ class ScanItem:
 
     @property
     def total_size(self) -> int:
-        return sum(f.size for f in self.files)
+        return sum(f.size for f in self.game_files)
+
+    @property
+    def game_files(self) -> list:
+        """Files that will actually be installed - never artwork or manuals."""
+        return [f for f in self.files
+                if f.kind in ("rom", "disc", "archive", "installer", "patch")]
+
+    @property
+    def media_count(self) -> int:
+        return sum(1 for f in self.files if f.kind == "media")
 
     def to_dict(self) -> dict:
         return {
@@ -84,6 +95,10 @@ class ScanItem:
 def classify(path: Path) -> str:
     name = path.name.lower()
     ext = path.suffix.lower()
+    # Artwork and video first: ES-DE claims .png for pico8, so without this a
+    # folder of box art turns into a folder of "games".
+    if sysmod.is_media(path):
+        return "media"
     if sysmod.is_doc(path.name):
         return "doc"
     # Volume 2..N of a split archive is not a game and not separately openable;
@@ -351,6 +366,9 @@ def scan_item(root: Path) -> ScanItem:
 
     _resolve_system(item)
     item.collection = _looks_like_collection(item)
+    # Media-only means "artwork and nothing else". A file with an unfamiliar
+    # extension is not media and must still be surfaced, not silently dropped.
+    item.media_only = bool(item.media_count) and not item.game_files
     return item
 
 
@@ -404,8 +422,9 @@ def should_split(folder: Path) -> bool:
 
 
 #: Loose files that are never a game and never worth reporting as one.
-IGNORE_EXTS = (".txt", ".md", ".nfo", ".diz", ".1st", ".rtf", ".url", ".sfv", ".md5",
-               ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ini", ".log", ".db")
+IGNORE_EXTS = ((".txt", ".md", ".nfo", ".diz", ".1st", ".rtf", ".url", ".sfv",
+                ".md5", ".ini", ".log", ".db", ".xml", ".cfg")
+               + sysmod.MEDIA_EXTS)
 
 GAME_KINDS = ("rom", "disc", "archive", "installer")
 
@@ -455,6 +474,10 @@ def scan(source: Path, _depth: int = 0) -> list[ScanItem]:
             item.unrecognized = True
             item.reasons.append(f"unrecognized extension {entry.suffix or '(none)'}")
             items.append(item)
+    # Folders holding only artwork or documents have nothing to install. They
+    # are dropped rather than reported, so a collection full of box art does
+    # not bury the real games in noise.
+    items = [i for i in items if not i.media_only]
     return group_multi_disc(items)
 
 

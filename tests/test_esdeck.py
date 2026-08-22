@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
 from esdeck import archives, bios, clean, config, cores, drives  # noqa: E402
-from esdeck import emulators, esde  # noqa: E402
+from esdeck import dedupe, emulators, esde  # noqa: E402
+from esdeck import progress  # noqa: E402
 from esdeck import launcher, plan  # noqa: E402
 from esdeck import readme_parse  # noqa: E402
 from esdeck import patch, scan, tidy  # noqa: E402
@@ -1186,6 +1187,138 @@ class TestModPlan(ScanFixture):
         # the unmodified ROM is still copied, so both are playable
         self.assertTrue(any(a["type"] == "copy" and a["src"].endswith(".sfc")
                             for a in pl["actions"]))
+
+
+class TestMediaExclusion(ScanFixture):
+    """Box art must never become a game. ES-DE claims .png for pico8."""
+
+    def test_png_beside_a_rom_is_not_a_game(self):
+        d = self.src / "Sonic"
+        touch(d / "Sonic (USA).md")
+        touch(d / "cover.jpg")
+        touch(d / "screenshot.png")
+        item = self.items()["Sonic"]
+        self.assertEqual(item.system, "megadrive")
+        self.assertEqual(len(item.game_files), 1)
+        self.assertEqual(item.media_count, 2)
+
+    def test_loose_images_are_not_scanned_as_games(self):
+        touch(self.src / "boxart.png")
+        touch(self.src / "trailer.mp4")
+        touch(self.src / "Zelda (USA).n64")
+        self.assertEqual(list(self.items()), ["Zelda"])
+
+    def test_folder_of_only_artwork_is_dropped(self):
+        d = self.src / "Art Only"
+        touch(d / "poster1.jpg")
+        touch(d / "poster2.png")
+        self.assertEqual(self.items(), {})
+
+    def test_media_is_never_copied_into_the_library(self):
+        d = self.src / "Sonic"
+        touch(d / "Sonic (USA).md")
+        touch(d / "cover.jpg")
+        pl = plan.build(self.items()["Sonic"], self.cfg)
+        copied = [Path(a["src"]).suffix.lower()
+                  for a in pl["actions"] if a["type"] == "copy"]
+        self.assertEqual(copied, [".md"])
+
+    def test_unknown_extension_is_still_surfaced(self):
+        """Media exclusion must not swallow genuinely unidentified files."""
+        touch(self.src / "mystery.xyz")
+        self.assertIn("mystery", self.items())
+
+
+class TestDeduplication(unittest.TestCase):
+    """A dump folder holds the same game four times over."""
+
+    def test_verified_dump_beats_a_hack(self):
+        self.assertLess(dedupe.rank("Sonic (USA) [!].md")[0],
+                        dedupe.rank("Sonic (USA) [h1].md")[0])
+
+    def test_quality_tag_beats_region(self):
+        """"(USA) [h1]" is a hack that happens to be American."""
+        self.assertGreater(dedupe.rank("Sonic (USA) [h1].md")[0],
+                           dedupe.rank("Sonic (J).md")[0])
+
+    def test_bad_dump_ranks_last(self):
+        ranks = [dedupe.rank(n)[0] for n in
+                 ("A [!].md", "A.md", "A [a1].md", "A [h1].md", "A [b1].md")]
+        self.assertEqual(ranks, sorted(ranks))
+
+    def test_us_preferred_over_japan_at_equal_quality(self):
+        self.assertLess(dedupe.rank("Sonic (USA).md")[1],
+                        dedupe.rank("Sonic (Japan).md")[1])
+
+    def test_picks_one_copy_and_reports_the_rest(self):
+        class FakeItem:
+            def __init__(self, name):
+                self.raw_name = name
+                self.name = "Sonic the Hedgehog"
+                self.system = "megadrive"
+                self.total_size = 100
+        items = [FakeItem(n) for n in (
+            "Sonic the Hedgehog (USA) [h1].md",
+            "Sonic the Hedgehog (USA) [!].md",
+            "Sonic the Hedgehog (E).md")]
+        kept, skipped = dedupe.pick_best(items)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0].raw_name, "Sonic the Hedgehog (USA) [!].md")
+        self.assertEqual(len(skipped), 2)
+
+    def test_different_games_are_both_kept(self):
+        class FakeItem:
+            def __init__(self, name, title):
+                self.raw_name = name
+                self.name = title
+                self.system = "megadrive"
+                self.total_size = 100
+        kept, skipped = dedupe.pick_best(
+            [FakeItem("Sonic (USA).md", "Sonic"),
+             FakeItem("Streets of Rage (USA).md", "Streets of Rage")])
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(skipped, [])
+
+    def test_unresolved_items_are_never_dropped_as_duplicates(self):
+        class FakeItem:
+            def __init__(self):
+                self.raw_name = "Mystery.iso"
+                self.name = "Mystery"
+                self.system = None
+                self.total_size = 1
+        kept, skipped = dedupe.pick_best([FakeItem(), FakeItem()])
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(skipped, [])
+
+
+class TestProgress(unittest.TestCase):
+    def test_fraction_uses_bytes_when_known(self):
+        p = progress.Progress(total_items=10, total_bytes=1000, enabled=False)
+        p.advance(items=1, nbytes=500)
+        self.assertAlmostEqual(p.fraction, 0.5)
+
+    def test_fraction_falls_back_to_item_count(self):
+        p = progress.Progress(total_items=4, total_bytes=0, enabled=False)
+        p.advance(items=1)
+        self.assertAlmostEqual(p.fraction, 0.25)
+
+    def test_eta_unknown_until_there_is_data(self):
+        p = progress.Progress(total_items=10, total_bytes=1000, enabled=False)
+        self.assertEqual(p.eta, -1)
+
+    def test_human_helpers(self):
+        self.assertEqual(progress.human_bytes(512), "512 B")
+        self.assertEqual(progress.human_bytes(1536), "2 KB")
+        self.assertEqual(progress.human_time(45), "45s")
+        self.assertEqual(progress.human_time(125), "2m 05s")
+
+    def test_totals_ignore_review_only_actions(self):
+        plans = [{"actions": [
+            {"type": "copy", "size": 100},
+            {"type": "install", "size": 999, "needs_review": True},
+            {"type": "mkdir"},
+        ]}]
+        self.assertEqual(progress.plan_totals(plans), (1, 100))
 
 
 class TestEmulatorChoice(unittest.TestCase):

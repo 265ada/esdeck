@@ -118,7 +118,8 @@ def build(item: ScanItem, cfg: Config, *, staging: Path | None = None) -> dict:
         # A PC game shipped as an archive still has to be unpacked somewhere.
         for f in archive_files:
             if cfg.auto_extract and archives.can_read(f.path):
-                actions.append(_action("extract", src=str(f.path), dst=str(game_dir)))
+                actions.append(_action("extract", src=str(f.path),
+                                       dst=str(game_dir), size=f.size))
             else:
                 actions.append(_action(
                     "extract", src=str(f.path), dst=str(game_dir), needs_review=True,
@@ -162,7 +163,8 @@ def build(item: ScanItem, cfg: Config, *, staging: Path | None = None) -> dict:
                 actions.append(_action("copy", src=str(f.path), dst=str(dest_dir / f.path.name),
                                        size=f.size))
             elif cfg.auto_extract and archives.can_read(f.path):
-                actions.append(_action("extract", src=str(f.path), dst=str(dest_dir)))
+                actions.append(_action("extract", src=str(f.path),
+                                       dst=str(dest_dir), size=f.size))
             else:
                 actions.append(_action(
                     "extract", src=str(f.path), dst=str(dest_dir), needs_review=True,
@@ -176,8 +178,13 @@ def build(item: ScanItem, cfg: Config, *, staging: Path | None = None) -> dict:
             stem = Path(base_path).stem
             suffix = Path(patch_path).stem
             out = dest_dir / f"{stem} ({suffix}){Path(base_path).suffix}"
+            try:
+                psize = Path(base_path).stat().st_size
+            except OSError:
+                psize = 0
             actions.append(_action("patch", base=str(base_path),
-                                   patch=str(patch_path), dst=str(out)))
+                                   patch=str(patch_path), dst=str(out),
+                                   size=psize))
 
         # Multi-disc sets get an .m3u so ES-DE shows one entry.
         #

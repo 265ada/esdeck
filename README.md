@@ -244,6 +244,37 @@ Or record them once so a bare `esdeck sync` covers them all:
 esdeck init --source-dir D:\Incoming --source-dir E:\Downloads\Games
 ```
 
+## Messy collections
+
+Artwork is never treated as a game. This matters more than it sounds: ES-DE lists
+`.png` as a valid extension for pico8 and tic80, so without care every screenshot
+becomes a library entry. Images, video, audio and manuals are ignored, folders
+holding only artwork are skipped, and the scan says how many were passed over:
+
+```
+OK   Sonic the Hedgehog  ->  megadrive  (1 file(s), 4 MB, 2 image(s) ignored)
+```
+
+Scrape artwork with ES-DE's own scraper instead - it is better at it.
+
+**One copy per game.** Dumps accumulate variants of the same title, so esdeck keeps
+the best and reports the rest, ranked by the usual bracket tags:
+
+```
+  4 duplicate(s) skipped - one copy kept per game:
+    megadrive: kept Sonic the Hedgehog (USA) [!].md  |  skipped Sonic the Hedgehog (USA) [h1].md (hack)
+```
+
+A verified `[!]` dump beats a hack, which beats a bad dump; region separates
+otherwise-equal copies. Nothing is deleted - duplicates are just not filed, and
+`--keep-duplicates` files everything.
+
+**Progress and an estimate** for long sorts:
+
+```
+[########--------------------]  28.4%  912/3260  4.1 GB/14.6 GB  38.2 MB/s  elapsed 1m 48s  left 4m 34s
+```
+
 ## BIOS files
 
 Some systems will not run without console firmware - Saturn, Dreamcast, Mega CD,

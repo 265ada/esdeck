@@ -6,6 +6,30 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.6.0] - 2026-08-22
+
+### Added
+- **Progress, throughput and a time estimate.** Filing a few thousand games
+  moves tens of gigabytes; without feedback that is indistinguishable from a
+  hung program. The estimate is based on bytes rather than file count, because
+  game files run from 32 KB to 4 GB.
+
+      [########--------------------]  28.4%  912/3260  4.1 GB/14.6 GB
+      38.2 MB/s  elapsed 1m 48s  left 4m 34s  Sonic the Hedgehog (USA).md
+
+- **One copy of each game.** A dump folder holds the same title several times
+  over - `[!]`, `[h1]`, `[f1]`, regional variants. esdeck keeps the best copy
+  and reports the rest, ranking by the GoodTools tags: a verified `[!]` dump
+  beats a hack, which beats a bad dump. Nothing is deleted; duplicates are
+  simply not filed. `--keep-duplicates` files them all.
+
+### Fixed
+- **Artwork was being filed as games.** ES-DE lists `.png` as a valid extension
+  for pico8 and tic80, so every screenshot in a collection became its own
+  library entry - one folder produced a game called "screenshot". Images,
+  video, audio and manuals are now media, never games; a folder holding only
+  artwork is skipped; and the count shown says how many images were ignored.
+
 ## [0.5.1] - 2026-08-22
 
 ### Fixed

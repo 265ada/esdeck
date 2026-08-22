@@ -51,7 +51,12 @@ def set_hidden(path: Path) -> bool:
 
 
 def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = None,
-               overwrite: bool = False, log=print) -> Result:
+               overwrite: bool = False, log=print, on_progress=None) -> Result:
+    """Execute a plan.
+
+    on_progress, if given, is called after each action that moves data with
+    (action_type, bytes, label) so a caller can show progress and an estimate.
+    """
     res = Result()
     root_paths = [Path(r) for r in (roots or []) if r]
 
@@ -133,6 +138,11 @@ def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = No
                     p.write_text("\n".join(a["entries"]) + "\n", encoding="utf-8")
 
             res.done.append(kind)
+            if on_progress is not None and kind in ("copy", "copy_tree",
+                                                    "extract", "patch"):
+                moved = int(a.get("size") or 0)
+                label = Path(a.get("dst") or a.get("path") or "").name
+                on_progress(kind, moved, label)
         except Exception as exc:                     # noqa: BLE001 - reported, not raised
             res.errors.append(f"{kind}: {exc}")
             log(f"  ERROR  {kind}: {exc}")

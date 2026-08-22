@@ -28,9 +28,11 @@ from pathlib import Path
 from . import apply as apply_mod
 from . import bios as bios_mod
 from . import bootstrap, clean as clean_mod, config, cores as cores_mod
+from . import dedupe as dedupe_mod
 from . import drives as drives_mod
 from . import emulators as emu_mod
 from . import launcher, plan as plan_mod
+from . import progress as progress_mod
 from . import scan as scan_mod
 from . import tidy as tidy_mod
 from .systems import BY_KEY
@@ -126,8 +128,9 @@ def cmd_bootstrap(args) -> int:
 def _describe(item) -> None:
     conf = {"high": "OK  ", "medium": "?   ", "low": "??  "}[item.confidence]
     sysname = item.system or ("UNRECOGNIZED" if item.unrecognized else "UNKNOWN")
-    _p(f"{conf} {item.name}  ->  {sysname}  ({len(item.files)} files, "
-       f"{item.total_size / 1_048_576:.0f} MB)")
+    extra = f", {item.media_count} image(s) ignored" if item.media_count else ""
+    _p(f"{conf} {item.name}  ->  {sysname}  ({len(item.game_files)} file(s), "
+       f"{item.total_size / 1_048_576:.0f} MB{extra})")
     if item.candidates:
         _p(f"       also plausible: {', '.join(item.candidates)}")
     for rel in item.opaque_archives:
@@ -298,8 +301,22 @@ def cmd_sync(args) -> int:
             return 2
         for i in items:
             i.system, i.candidates, i.confidence = args.system, [], "high"
+    # Messy collections hold the same game several times over. Keep the best
+    # copy of each and say which ones were passed over.
+    duplicates = []
+    if not args.keep_duplicates:
+        items, duplicates = dedupe_mod.pick_best(items)
+
     for item in items:
         _describe(item)
+    if duplicates:
+        _p("")
+        _p(f"  {len(duplicates)} duplicate(s) skipped - one copy kept per game:")
+        for d in duplicates[:10]:
+            _p(f"    {d.describe()}")
+        if len(duplicates) > 10:
+            _p(f"    ... and {len(duplicates) - 10} more "
+               f"(use --keep-duplicates to file them all)")
 
     # 2. File them into the library.
     _p("\n[2/4] Filing games into the library")
@@ -310,13 +327,25 @@ def cmd_sync(args) -> int:
     unresolved, errors = [], 0
     staged = False
 
+    # Progress and an estimate: a few thousand games is tens of GB and minutes
+    # of copying, which without feedback looks exactly like a hung program.
+    n_items, n_bytes = progress_mod.plan_totals(bundle["plans"])
+    bar = progress_mod.Progress(total_items=n_items, total_bytes=n_bytes,
+                                enabled=args.yes and n_items > 1)
+
+    def tick(kind, nbytes, label):
+        bar.advance(items=1, nbytes=nbytes, label=label)
+
     def run_plan(pl, indent="  "):
         nonlocal errors
         res = apply_mod.apply_plan(pl, dry_run=not args.yes, roots=roots,
-                                   overwrite=args.overwrite, log=lambda *a: None)
+                                   overwrite=args.overwrite, log=lambda *a: None,
+                                   on_progress=tick)
         errors += len(res.errors)
-        _p(f"{indent}{pl['name']} -> {pl['system']}: {res}")
+        if not bar.enabled:
+            _p(f"{indent}{pl['name']} -> {pl['system']}: {res}")
         for e in res.errors:
+            bar.finish()
             _p(f"{indent}  ERROR {e}")
         manual.extend(f"[{pl['name']}] {s}" for s in apply_mod.manual_steps(pl))
 
@@ -326,7 +355,7 @@ def cmd_sync(args) -> int:
             if args.yes:
                 res = apply_mod.apply_plan(pl, dry_run=False, roots=roots,
                                            overwrite=args.overwrite,
-                                           log=lambda *a: None)
+                                           log=lambda *a: None, on_progress=tick)
                 errors += len(res.errors)
                 for e in res.errors:
                     _p(f"    ERROR {e}")
@@ -343,18 +372,28 @@ def cmd_sync(args) -> int:
         inner = scan_mod.scan(staging)
         _p(f"\n  unpacked {len(inner)} item(s) - sorting each one")
         inner_bundle = plan_mod.build_all(inner, cfg)
+        i_items, i_bytes = progress_mod.plan_totals(inner_bundle["plans"])
+        bar.total_items += i_items
+        bar.total_bytes += i_bytes
+        bar.enabled = args.yes and bar.total_items > 1
         placed = 0
         for pl in inner_bundle["plans"]:
             if not pl.get("system"):
                 unresolved.append(pl["name"])
                 continue
             res = apply_mod.apply_plan(pl, dry_run=False, roots=roots,
-                                       overwrite=args.overwrite, log=lambda *a: None)
+                                       overwrite=args.overwrite,
+                                       log=lambda *a: None, on_progress=tick)
             errors += len(res.errors)
             placed += 1
             manual.extend(f"[{pl['name']}] {s}" for s in apply_mod.manual_steps(pl))
+        bar.finish()
         _p(f"  filed {placed} game(s) from the collection")
         shutil.rmtree(staging, ignore_errors=True)
+
+    bar.finish(f"  {bar.items_done} file(s), "
+               f"{progress_mod.human_bytes(bar.bytes_done)} in "
+               f"{progress_mod.human_time(bar.elapsed)}" if bar.items_done else "")
 
     # 3. Cores, so the new systems can actually launch.
     if args.no_cores:
@@ -908,6 +947,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-cores", action="store_true", help="skip the RetroArch core step")
     p.add_argument("--clean", action="store_true",
                    help="afterwards delete drop-folder copies verified in the library")
+    p.add_argument("--keep-duplicates", action="store_true",
+                   help="file every copy of a game, not just the best one")
     p.add_argument("--quick-verify", action="store_true",
                    help="with --clean, verify by size instead of hashing")
     p.set_defaults(func=cmd_sync)
