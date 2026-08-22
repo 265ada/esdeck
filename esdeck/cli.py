@@ -51,6 +51,34 @@ def _utf8_console() -> None:
             pass
 
 
+# -------------------------------------------------------------- checksetup
+def cmd_checksetup(args) -> int:
+    """Exit 0 only if this machine is configured usably. For esdeck.bat.
+
+    Deliberately stricter than "config.json exists": a config pointing at a
+    relative ROM directory made setup skip itself forever while sorting
+    nothing.
+    """
+    if not config.CONFIG_PATH.is_file():
+        _p("not configured yet")
+        return 1
+    try:
+        cfg = config.load(strict=True)
+    except config.BadConfig as exc:
+        _p(f"broken config: {exc}")
+        return 1
+    issues = config.problems(cfg)
+    if issues:
+        for i in issues:
+            _p(f"broken config: {i}")
+        return 1
+    if not Path(cfg.rom_dir).is_dir():
+        _p(f"ROM directory does not exist: {cfg.rom_dir}")
+        return 1
+    _p("configured")
+    return 0
+
+
 # --------------------------------------------------------------------- init
 def cmd_init(args) -> int:
     cfg = config.load() if config.CONFIG_PATH.is_file() and not args.force else config.discover()
@@ -64,6 +92,16 @@ def cmd_init(args) -> int:
         cfg.source_dirs = [str(Path(d).expanduser()) for d in args.source_dir]
     if not cfg.install_dir or (args.rom_dir and not args.install_dir):
         cfg.install_dir = str(Path(cfg.rom_dir) / "windows")
+
+    # A config carried over from another PC can name that PC's user folder,
+    # e.g. another user's ES-DE directory. If the configured path is not there,
+    # fall back to this machine's own location rather than keeping a dead one.
+    if not args.es_config_dir and not Path(cfg.es_config_dir or "x").is_dir():
+        detected = config.default_es_config_dir()
+        if str(detected) != cfg.es_config_dir:
+            cfg.es_config_dir = str(detected)
+            if not cfg.media_dir or not Path(cfg.media_dir).is_absolute():
+                cfg.media_dir = str(detected / "downloaded_media")
     path = config.save(cfg)
     _p(f"Wrote {path}")
     for k, v in cfg.to_dict().items():
@@ -503,6 +541,10 @@ def cmd_clean(args) -> int:
 def cmd_drives(args) -> int:
     """List drives and how much room they have, for choosing where games live."""
     found = drives_mod.list_drives()
+    if args.current:
+        cfg = config.load()
+        _p(str(Path(cfg.rom_dir).parent) if cfg.rom_dir else "")
+        return 0
     if args.normalize is not None:
         _p(drives_mod.normalize_target(args.normalize))
         return 0
@@ -816,6 +858,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("drives", help="show drives and free space")
     p.add_argument("--suggest", action="store_true",
                    help="print only the suggested folder, for scripts")
+    p.add_argument("--current", action="store_true",
+                   help="print the games folder this PC is already using")
     p.add_argument("--normalize", metavar="ANSWER",
                    help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)
@@ -867,6 +911,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--quick-verify", action="store_true",
                    help="with --clean, verify by size instead of hashing")
     p.set_defaults(func=cmd_sync)
+
+    p = sub.add_parser("check-setup",
+                       help="exit 0 if this machine is configured usably")
+    p.set_defaults(func=cmd_checksetup)
 
     p = sub.add_parser("doctor", help="check this machine's setup")
     p.set_defaults(func=cmd_doctor)

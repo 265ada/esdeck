@@ -1,10 +1,13 @@
 @echo off
 rem ===========================================================================
-rem  esdeck - one file that does everything.
+rem  esdeck SETUP - run this once on a new PC.
 rem
-rem  Double-click it. On a new PC it installs and configures the whole setup;
-rem  after that it sorts whatever you have dropped in the Incoming folder.
-rem  Safe to run as often as you like - every step checks before it acts.
+rem  Asks where your games should live, then installs and configures
+rem  everything needed to play them: Python, esdeck, ES-DE, RetroArch, 7-Zip,
+rem  every emulator core, the ROM folder tree and the Incoming drop folder.
+rem
+rem  Safe to run again - it repairs and tops up whatever is missing.
+rem  To sort games afterwards, use sort-games.bat.
 rem
 rem  Optional arguments, in any order:
 rem    <folder>          where games live (skips the question)
@@ -12,12 +15,10 @@ rem    --no-cores        do not download emulator cores
 rem    --common-cores    11 common cores instead of all of them
 rem    --all-emulators   also install Dolphin, PCSX2, DuckStation, PPSSPP
 rem    --repair          reinstall ES-DE/RetroArch over an existing install
-rem    --clean           delete Incoming copies once verified in the library
-rem    --setup           force the full first-run setup again
 rem    --no-pause        do not wait for a key at the end (for scripts)
 rem ===========================================================================
 setlocal enabledelayedexpansion
-title esdeck
+title esdeck setup
 cd /d "%~dp0"
 
 set "GAMEROOT="
@@ -25,8 +26,6 @@ set "OPT_NOCORES="
 set "OPT_COMMON="
 set "OPT_ALLEMU="
 set "OPT_REPAIR="
-set "OPT_CLEAN="
-set "OPT_SETUP="
 set "OPT_NOPAUSE="
 for %%a in (%*) do (
     set "ARG=%%~a"
@@ -34,33 +33,25 @@ for %%a in (%*) do (
     if /i "!ARG!"=="--common-cores"  set "OPT_COMMON=1"
     if /i "!ARG!"=="--all-emulators" set "OPT_ALLEMU=1"
     if /i "!ARG!"=="--repair"        set "OPT_REPAIR=1"
-    if /i "!ARG!"=="--clean"         set "OPT_CLEAN=1"
-    if /i "!ARG!"=="--setup"         set "OPT_SETUP=1"
     if /i "!ARG!"=="--no-pause"      set "OPT_NOPAUSE=1"
     if not "!ARG:~0,2!"=="--" if not defined GAMEROOT set "GAMEROOT=!ARG!"
 )
-rem A window that closes on its own takes the error message with it, so
-rem every exit below waits for a key unless --no-pause was given.
-if defined GAMEROOT set "UNATTENDED=1"
 
 echo.
 echo  ===========================================================
-echo    esdeck
+echo    esdeck setup
 echo  ===========================================================
 echo.
 
-rem --------------------------------------------------------------- python ---
 set "PY="
 where python >nul 2>&1 && set "PY=python"
 if not defined PY where py >nul 2>&1 && set "PY=py"
 if not defined PY (
     where winget >nul 2>&1
     if errorlevel 1 (
-        echo  [X] Python is missing and winget is not available to install it.
+        echo  [X] Python is missing and winget cannot install it here.
         echo      Install Python from python.org, then run this again.
-        echo.
-        pause
-        exit /b 1
+        goto :fail
     )
     echo  [..] Installing Python
     winget install --id Python.Python.3.12 --exact --silent ^
@@ -68,65 +59,41 @@ if not defined PY (
     echo.
     echo  Python is installed but this window cannot see it yet.
     echo  Close this window, open a new one, and run esdeck.bat again.
-    echo.
-    pause
-    exit /b 0
+    goto :ok
 )
-set "ESDECK=%PY% -m esdeck"
+echo  [ok] Python found
 
-rem Is esdeck already set up on this machine?
-rem
-rem Deliberately NOT "doctor exited 0": doctor reports a missing BIOS as a
-rem problem, which is normal and expected, and treating that as "not set up"
-rem sent every later run back through the installer.
-set "NEEDS_SETUP=1"
-%PY% -c "import esdeck" >nul 2>&1
-if not errorlevel 1 (
-    if exist "%USERPROFILE%\.esdeck\config.json" set "NEEDS_SETUP=0"
-)
-if defined OPT_SETUP set "NEEDS_SETUP=1"
-
-if "%NEEDS_SETUP%"=="0" goto :sort
-
-rem Setup needs the project files. The copy on the Desktop is only for sorting.
 if not exist "pyproject.toml" (
-    echo  [X] This copy of esdeck.bat cannot install anything - it is on its own.
+    echo  [X] This copy of esdeck.bat is on its own and cannot install anything.
     echo.
-    echo      To set this PC up, run esdeck.bat from the folder you unzipped
-    echo      from GitHub ^(the one containing pyproject.toml^).
-    echo      To just sort games on a PC already set up, use sort-games.bat.
-    echo.
-    pause
-    exit /b 1
+    echo      Run it from the folder you unzipped from GitHub - the one that
+    echo      contains pyproject.toml.
+    goto :fail
 )
-
-rem ======================= FIRST RUN: SET EVERYTHING UP =======================
-echo  First run - setting this PC up.
-echo.
-
-where winget >nul 2>&1
-if errorlevel 1 (
-    echo  [X] winget is not available. Install "App Installer" from the
-    echo      Microsoft Store, then run this again.
-    echo.
-    pause
-    exit /b 1
-)
-echo  [ok] winget found
 
 echo  [..] Installing esdeck
 %PY% -m pip install -e . --quiet --disable-pip-version-check
 if errorlevel 1 (
     echo  [X] pip install failed. Scroll up for the reason.
-    echo.
-    pause
-    exit /b 1
+    goto :fail
 )
 echo  [ok] esdeck installed
+set "ESDECK=%PY% -m esdeck"
+
+rem Reuse an existing setup only if it is actually usable. A config left by an
+rem older version can point at a relative path like "G\ROMs", which made setup
+rem skip itself forever while sorting nothing.
+if not defined GAMEROOT (
+    %ESDECK% check-setup >nul 2>&1
+    if not errorlevel 1 (
+        for /f "delims=" %%r in ('%ESDECK% drives --current 2^>nul') do set "GAMEROOT=%%r"
+        if defined GAMEROOT echo  [ok] Already set up - using !GAMEROOT!
+    )
+)
 
 if not defined GAMEROOT (
     echo.
-    echo  Your games can live on any drive. Here is what this PC has:
+    echo  Where should your games live? Here is what this PC has:
     echo.
     %ESDECK% drives
     echo.
@@ -134,39 +101,35 @@ if not defined GAMEROOT (
     echo      ^<folder^>\ROMs       the sorted library ES-DE reads
     echo      ^<folder^>\Incoming   where you drop new games
     echo.
-    echo  You can answer with just a drive letter ^(G^), a drive ^(G:^) or a
-    echo  full path ^(G:\Games^).
+    echo  Answer with a drive letter ^(G^), a drive ^(G:^) or a full path.
     echo.
     for /f "delims=" %%d in ('%ESDECK% drives --suggest') do set "SUGGEST=%%d"
     set /p "GAMEROOT=  Game folder [!SUGGEST!]: "
     if not defined GAMEROOT set "GAMEROOT=!SUGGEST!"
 )
 
-rem "G" on its own is a relative path - it used to create a folder called G
-rem next to this script instead of using the G: drive. Normalise it first.
+rem "G" alone is a relative path - it used to create a folder called G next to
+rem this script instead of using the G: drive. Turn it into a real path first.
 for /f "delims=" %%n in ('%ESDECK% drives --normalize "%GAMEROOT%"') do set "GAMEROOT=%%n"
 if not defined GAMEROOT (
     echo  [X] That is not a full path. Use a drive letter ^(G^) or a path
     echo      like G:\Games, then run this again.
-    echo.
-    pause
-    exit /b 1
+    goto :fail
 )
-echo  [ok] Using %GAMEROOT%
-
-rem An earlier version turned a bare "G" into a folder called G right here.
-rem If one is sitting next to this script, say so - it is not the library.
-rem (esdeck tidy removes it during the sorting step below.)
+echo  [ok] Games folder: %GAMEROOT%
 
 set "ROMDIR=%GAMEROOT%\ROMs"
 set "INCOMING=%GAMEROOT%\Incoming"
 if not exist "%ROMDIR%"   mkdir "%ROMDIR%"
 if not exist "%INCOMING%" mkdir "%INCOMING%"
 if not exist "%ROMDIR%" (
-    echo  [X] Could not create %ROMDIR% - is that drive available and writable?
-    echo.
-    pause
-    exit /b 1
+    echo  [X] Could not create %ROMDIR%
+    echo      Is that drive plugged in, and is it writable?
+    goto :fail
+)
+if not exist "%INCOMING%" (
+    echo  [X] Could not create %INCOMING%
+    goto :fail
 )
 echo  [ok] %ROMDIR%
 echo  [ok] %INCOMING%
@@ -174,10 +137,9 @@ echo  [ok] %INCOMING%
 %ESDECK% init --rom-dir "%ROMDIR%" --source-dir "%INCOMING%" >nul
 if errorlevel 1 (
     echo  [X] esdeck init failed.
-    pause
-    exit /b 1
+    goto :fail
 )
-echo  [ok] configured
+echo  [ok] Configured
 
 echo.
 echo  [..] Installing ES-DE, RetroArch and 7-Zip
@@ -208,37 +170,47 @@ echo  [..] Applying emulator choices
 %ESDECK% emulators --apply --yes
 echo.
 
+rem Clear up a stray folder left by an older version answering "G" literally.
+%ESDECK% tidy --yes --near "%~dp0." >nul 2>&1
+
 set "DESKTOP=%USERPROFILE%\Desktop"
 if not exist "%DESKTOP%" set "DESKTOP=%USERPROFILE%\OneDrive\Desktop"
 if exist "%DESKTOP%" (
-    copy /y "%~f0" "%DESKTOP%\esdeck.bat" >nul
-    if exist "sort-games.bat" copy /y "sort-games.bat" "%DESKTOP%\sort-games.bat" >nul
-    echo  [ok] "esdeck" and "sort-games" placed on your Desktop
+    if exist "sort-games.bat" (
+        copy /y "sort-games.bat" "%DESKTOP%\sort-games.bat" >nul
+        echo  [ok] "sort-games" placed on your Desktop
+    )
 )
-echo.
 
-rem ============================ SORT THE GAMES ================================
-:sort
+echo.
 echo  ===========================================================
-echo    Sorting your drop folder
+echo    Checking the result
 echo  ===========================================================
-echo.
-%ESDECK% tidy --yes --near "%~dp0."
-echo.
-
-set "SYNCFLAGS=--yes"
-if defined OPT_CLEAN set "SYNCFLAGS=%SYNCFLAGS% --clean"
-%ESDECK% sync %SYNCFLAGS%
-echo.
-
 %ESDECK% doctor
 echo.
 echo  ===========================================================
-echo    Done. Start ES-DE to play - press F5 in it to refresh.
+echo    Setup complete
 echo  ===========================================================
+echo.
+echo    1. Drag your games into:  %INCOMING%
+echo    2. Run sort-games.bat  ^(now on your Desktop^)
+echo    3. Start ES-DE and play
+echo.
+goto :ok
+
+:fail
 echo.
 if not defined OPT_NOPAUSE (
     echo  Press any key to close this window.
     pause >nul
 )
 endlocal
+exit /b 1
+
+:ok
+if not defined OPT_NOPAUSE (
+    echo  Press any key to close this window.
+    pause >nul
+)
+endlocal
+exit /b 0

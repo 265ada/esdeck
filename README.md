@@ -17,8 +17,11 @@ Zero dependencies — Python 3.10+ standard library only, so getting it onto mac
 
 ## Install
 
-Clone the repo and double-click **`esdeck.bat`**. That one file is everything -
-first run sets the PC up, every run after that sorts your games.
+Clone the repo and double-click **`esdeck.bat`**. It asks where your games should
+live, then installs and configures everything.
+
+After that, **`sort-games.bat`** is the one you use: drag games onto it, or drop them
+in your Incoming folder and double-click it.
 
 ```bash
 git clone https://github.com/265ada/esdeck && cd esdeck && esdeck.bat

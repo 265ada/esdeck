@@ -157,11 +157,53 @@ def discover() -> Config:
     )
 
 
-def load(path: Path | None = None) -> Config:
+def problems(cfg: Config) -> list[str]:
+    r"""Why this config cannot be used, or [] when it is fine.
+
+    A relative rom_dir is the important case: an early version turned the
+    answer "G" into the relative path "G\ROMs", which resolves to a different
+    place depending on where esdeck is run from and usually does not exist at
+    all. A config like that must count as "not set up" so setup runs again,
+    rather than being accepted and quietly doing nothing.
+    """
+    out = []
+    if not cfg.rom_dir:
+        out.append("no ROM directory is configured")
+    elif not Path(cfg.rom_dir).is_absolute():
+        out.append(f"ROM directory {cfg.rom_dir!r} is a relative path, not a "
+                   r"full path like D:\Games\ROMs")
+    if cfg.source_dirs:
+        for d in cfg.source_dirs:
+            if not Path(d).is_absolute():
+                out.append(f"drop folder {d!r} is a relative path")
+    return out
+
+
+def is_usable(cfg: Config) -> bool:
+    return not problems(cfg)
+
+
+class BadConfig(Exception):
+    """The config file exists but cannot be read."""
+
+
+def load(path: Path | None = None, *, strict: bool = False) -> Config:
+    """Load the config, falling back to autodetection if it is unreadable.
+
+    A damaged config file should produce a clear message and a fresh setup,
+    not a Python traceback in front of someone who just double-clicked a .bat.
+    """
     p = Path(path) if path else CONFIG_PATH
     if not p.is_file():
         return discover()
-    data = json.loads(p.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("not a JSON object")
+    except (OSError, ValueError) as exc:
+        if strict:
+            raise BadConfig(f"{p} is not readable: {exc}") from exc
+        return discover()
     known = {f for f in Config().to_dict()}
     return Config(**{k: v for k, v in data.items() if k in known})
 

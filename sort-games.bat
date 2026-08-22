@@ -1,57 +1,110 @@
 @echo off
 rem ===========================================================================
-rem  Sort the drop folder into the library. Nothing else.
+rem  esdeck SORT - put your games in the library.
 rem
-rem  esdeck.bat does this too - it sets the PC up on first run, then sorts on
-rem  every run after. This file is here for when you only want the sorting:
-rem  put it wherever is convenient, including the Desktop.
+rem  Two ways to use it:
+rem    * Drag games (or folders of games) onto this file, or
+rem    * Drop them in your Incoming folder and just double-click this.
 rem
-rem  Optional:  sort-games.bat --clean   also frees space by deleting the
-rem                                      Incoming copies once verified.
+rem  It shows what it found and what it will do, then asks before changing
+rem  anything. Run esdeck.bat first if this PC has not been set up.
+rem
+rem  Optional arguments:
+rem    --clean      afterwards delete the Incoming copies, once verified
+rem    --yes        skip the confirmation
+rem    --no-pause   do not wait for a key at the end (for scripts)
 rem ===========================================================================
-setlocal
+setlocal enabledelayedexpansion
 title esdeck - sort games
 cd /d "%~dp0"
+
+set "DROPPED="
+set "OPT_CLEAN="
+set "OPT_YES="
+set "OPT_NOPAUSE="
+for %%a in (%*) do (
+    set "ARG=%%~a"
+    if /i "!ARG!"=="--clean"    ( set "OPT_CLEAN=1"
+    ) else if /i "!ARG!"=="--yes"      ( set "OPT_YES=1"
+    ) else if /i "!ARG!"=="--no-pause" ( set "OPT_NOPAUSE=1"
+    ) else ( set "DROPPED=!DROPPED! "%%~a"" )
+)
+
+echo.
+echo  ===========================================================
+echo    esdeck - sorting your games
+echo  ===========================================================
+echo.
 
 set "PY="
 where python >nul 2>&1 && set "PY=python"
 if not defined PY where py >nul 2>&1 && set "PY=py"
 if not defined PY (
-    echo  Python is not installed. Run esdeck.bat first.
-    echo.
-    pause
-    exit /b 1
+    echo  [X] Python is not installed. Run esdeck.bat first.
+    goto :fail
 )
+set "ESDECK=%PY% -m esdeck"
 
-%PY% -m esdeck doctor >nul 2>&1
+%ESDECK% check-setup
 if errorlevel 1 (
-    echo  esdeck is not set up on this PC yet. Run esdeck.bat first.
     echo.
-    pause
-    exit /b 1
+    echo  [X] This PC is not set up yet - run esdeck.bat first.
+    echo      It asks where your games should live and installs everything.
+    goto :fail
 )
 
+rem Tidy first: removes a stray folder from an older version, and makes sure
+rem each game shows once in ES-DE rather than once per file.
+%ESDECK% tidy --yes --near "%~dp0." >nul 2>&1
+
+if defined DROPPED (
+    echo  Sorting what you dragged onto this file.
+    echo.
+) else (
+    echo  Sorting your Incoming folder.
+    echo.
+)
+
+set "FLAGS="
+if defined OPT_CLEAN set "FLAGS=--clean"
+
+rem Show the plan first - nothing is changed by this.
+%ESDECK% sync %DROPPED% %FLAGS%
 echo.
-echo  Checking what is in your drop folder...
-echo.
-%PY% -m esdeck sync %*
-echo.
+
+if defined OPT_YES goto :apply
 
 set "GO="
-set /p "GO=Apply these changes? [y/N] "
+set /p "GO=  Apply these changes? [y/N] "
 if /i not "%GO%"=="y" (
-    echo  Nothing was changed.
     echo.
-    pause
-    exit /b 0
+    echo  Nothing was changed.
+    goto :ok
 )
 
+:apply
 echo.
-%PY% -m esdeck tidy --yes
-%PY% -m esdeck sync --yes %*
+%ESDECK% sync %DROPPED% --yes %FLAGS%
 echo.
-echo  Done. Press F5 in ES-DE to see the new games.
+echo  ===========================================================
+echo    Done - press F5 in ES-DE to see the new games.
+echo  ===========================================================
+goto :ok
+
+:fail
 echo.
-echo  Press any key to close this window.
-pause >nul
+if not defined OPT_NOPAUSE (
+    echo  Press any key to close this window.
+    pause >nul
+)
 endlocal
+exit /b 1
+
+:ok
+echo.
+if not defined OPT_NOPAUSE (
+    echo  Press any key to close this window.
+    pause >nul
+)
+endlocal
+exit /b 0

@@ -1241,5 +1241,43 @@ class TestEmulatorChoice(unittest.TestCase):
         self.assertEqual(config.Config().emulators.get("psx"), "SwanStation")
 
 
+class TestConfigValidity(unittest.TestCase):
+    """A config that cannot work must count as "not set up", so setup re-runs."""
+
+    def test_relative_rom_dir_is_rejected(self):
+        """The "G" answer produced rom_dir="G\\ROMs", which resolves nowhere."""
+        cfg = config.Config(rom_dir="G" + chr(92) + "ROMs")
+        self.assertFalse(config.is_usable(cfg))
+        self.assertIn("relative", config.problems(cfg)[0])
+
+    def test_absolute_rom_dir_is_fine(self):
+        self.assertTrue(config.is_usable(config.Config(rom_dir="D:" + chr(92) + "ROMs")))
+
+    def test_empty_rom_dir_is_rejected(self):
+        self.assertFalse(config.is_usable(config.Config()))
+
+    def test_relative_source_dir_is_reported(self):
+        cfg = config.Config(rom_dir="D:" + chr(92) + "ROMs",
+                            source_dirs=["G" + chr(92) + "Incoming"])
+        self.assertFalse(config.is_usable(cfg))
+
+    def test_corrupt_config_file_does_not_crash(self):
+        """A damaged file should mean a fresh setup, not a traceback."""
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "config.json"
+            p.write_text("{not json at all", encoding="utf-8")
+            cfg = config.load(p)                 # falls back to autodetect
+            self.assertIsInstance(cfg, config.Config)
+            with self.assertRaises(config.BadConfig):
+                config.load(p, strict=True)
+
+    def test_config_that_is_not_an_object_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "config.json"
+            p.write_text("[1, 2, 3]", encoding="utf-8")
+            with self.assertRaises(config.BadConfig):
+                config.load(p, strict=True)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,29 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.5.0] - 2026-08-22
+
+### Changed
+- **Two files with one job each.** `esdeck.bat` sets a PC up - asks where games
+  should live and installs everything needed. `sort-games.bat` sorts games, and
+  accepts games or folders **dragged onto it** as well as reading the Incoming
+  folder. Setup finishes by putting sort-games on your Desktop.
+
+### Fixed
+- **A broken config made setup skip itself forever.** "Already set up" was
+  decided by whether config.json existed. A config left by an earlier version
+  could point at a relative path like `G\ROMs`, so setup never re-ran, the
+  Incoming folder was never created, and every run reported "No ROM directory"
+  and sorted nothing. Setup is now decided by whether the config is *usable* -
+  new `esdeck check-setup` - so a bad one sends you back through the question
+  and repairs itself.
+- **A corrupt config.json crashed with a Python traceback** in front of someone
+  who double-clicked a .bat. It now falls back to autodetection, and reports
+  the problem in a sentence.
+- **A config copied from another PC kept that PC's user folder** for ES-DE, so
+  every check failed against a path that does not exist here. Setup now detects
+  this machine's own ES-DE location when the configured one is missing.
+
 ## [0.4.2] - 2026-08-22
 
 ### Fixed
