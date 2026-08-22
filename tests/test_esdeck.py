@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import bios, config, cores, esde, launcher, plan, readme_parse  # noqa: E402
+from esdeck import bios, config, cores, drives, esde, launcher, plan  # noqa: E402
+from esdeck import readme_parse  # noqa: E402
 from esdeck import scan, tidy  # noqa: E402
 from esdeck import sniff  # noqa: E402
 from esdeck import systems  # noqa: E402
@@ -798,6 +799,36 @@ class TestTidy(unittest.TestCase):
         touch(self.roms / "n64" / "Turok.n64")
         cross = tidy.cross_system_duplicates(self.roms)
         self.assertEqual(len(cross), 1)
+
+
+class TestDrives(unittest.TestCase):
+    """Where a library should live is measured, then offered - never assumed."""
+
+    def _d(self, letter, free_gb, total_gb=1000, system=False, kind=drives.DRIVE_FIXED):
+        return drives.Drive(letter, int(total_gb * drives.GB),
+                            int(free_gb * drives.GB), kind, system)
+
+    def test_lists_real_drives_biggest_first(self):
+        found = drives.list_drives()
+        self.assertTrue(found, "expected at least one drive")
+        frees = [d.free for d in found]
+        self.assertEqual(frees, sorted(frees, reverse=True))
+
+    def test_suggestion_is_an_existing_drive(self):
+        suggested = drives.suggest()
+        self.assertTrue(suggested.endswith("Games"))
+        letters = {d.letter for d in drives.list_drives()}
+        self.assertIn(suggested[:2], letters)
+
+    def test_low_space_drive_is_flagged(self):
+        self.assertFalse(self._d("E:", 2).roomy)
+        self.assertTrue(self._d("E:", 500).roomy)
+
+    def test_describe_marks_the_system_drive(self):
+        self.assertIn("system drive", self._d("C:", 500, system=True).describe())
+
+    def test_free_space_is_reported_in_gb(self):
+        self.assertAlmostEqual(self._d("D:", 250).free_gb, 250, places=3)
 
 
 if __name__ == "__main__":

@@ -23,7 +23,22 @@ Clone the repo and double-click **`install.bat`**. That is the whole setup.
 git clone https://github.com/265ada/esdeck && cd esdeck && install.bat
 ```
 
-It asks one question - where your games should live - then does everything else:
+It asks one question - which drive your games should live on. It measures every
+drive first and suggests the roomiest, but the choice is yours; nothing assumes a
+D: drive exists:
+
+```
+ Your games can live on any drive. Here is what this PC has:
+
+ -> D:    2873.9 GB free of   3726.0 GB
+    C:     839.2 GB free of    930.5 GB  (system drive)
+
+Suggested: D:\Games
+
+  Game folder [D:\Games]: _
+```
+
+Then it does everything else:
 
 | Step | What it does |
 | --- | --- |
@@ -233,6 +248,7 @@ esdeck profile import --file esdeck-profile.json
 | `esdeck scan <dir>` | Show what esdeck thinks each dropped game is, and why |
 | `esdeck plan <dir>` | Write a reviewable `esdeck-plan.json` |
 | `esdeck apply <plan>` | Execute the safe half of a plan (dry run by default) |
+| `esdeck drives` | Show drives and free space, and the suggested library location |
 | `esdeck bios` | Report which BIOS files your systems need and verify the ones you have |
 | `esdeck tidy` | Repair an existing library and find duplicate copies |
 | `esdeck cores` | Install RetroArch cores (`--all`, `--common`, or just what your systems need) |

@@ -24,7 +24,8 @@ from pathlib import Path
 
 from . import apply as apply_mod
 from . import bios as bios_mod
-from . import bootstrap, config, cores as cores_mod, launcher, plan as plan_mod
+from . import bootstrap, config, cores as cores_mod, drives as drives_mod
+from . import launcher, plan as plan_mod
 from . import scan as scan_mod
 from . import tidy as tidy_mod
 from .systems import BY_KEY
@@ -298,6 +299,24 @@ def cmd_sync(args) -> int:
     return 1 if errors else 0
 
 
+# ------------------------------------------------------------------- drives
+def cmd_drives(args) -> int:
+    """List drives and how much room they have, for choosing where games live."""
+    found = drives_mod.list_drives()
+    if args.suggest:
+        _p(drives_mod.suggest())
+        return 0
+    if not found:
+        _p("No fixed drives found.")
+        return 1
+    for d in found:
+        marker = "->" if f"{d.letter}\\" in drives_mod.suggest() else "  "
+        _p(f" {marker} {d.describe()}")
+    _p("")
+    _p(f"Suggested: {drives_mod.suggest()}")
+    return 0
+
+
 # --------------------------------------------------------------------- tidy
 def cmd_tidy(args) -> int:
     """Repair a library: one entry per game, and report duplicate copies."""
@@ -566,6 +585,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unsafe-any-path", action="store_true",
                    help="disable the write-outside-ROM-dir guard")
     p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("drives", help="show drives and free space")
+    p.add_argument("--suggest", action="store_true",
+                   help="print only the suggested folder, for scripts")
+    p.set_defaults(func=cmd_drives)
 
     p = sub.add_parser("tidy", help="repair an existing library and find duplicates")
     p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")

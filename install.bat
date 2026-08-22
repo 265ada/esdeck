@@ -47,7 +47,7 @@ if not defined PY (
 )
 for /f "tokens=*" %%v in ('%PY% --version 2^>^&1') do echo  [ok] %%v
 
-rem ---------------------------------------------------------------- paths ---
+rem ------------------------------------------------------------ arguments ---
 rem Arguments, in any order:
 rem   install.bat [game folder] [--no-cores] [--common-cores] [--all-emulators]
 rem                     [--repair]
@@ -65,26 +65,6 @@ for %%a in (%*) do (
     if /i "!ARG!"=="--repair"        set "OPT_REPAIR=1"
     if not "!ARG:~0,2!"=="--" if not defined GAMEROOT set "GAMEROOT=!ARG!"
 )
-if defined GAMEROOT set "UNATTENDED=1"
-if not defined GAMEROOT (
-    echo.
-    echo  Where should your games live? Two folders are created under it:
-    echo      ^<folder^>\ROMs       the sorted library ES-DE reads
-    echo      ^<folder^>\Incoming   where you drop new games
-    echo.
-    set /p "GAMEROOT=  Game folder [D:\Games]: "
-)
-if not defined GAMEROOT set "GAMEROOT=D:\Games"
-if "%GAMEROOT%"=="" set "GAMEROOT=D:\Games"
-
-set "ROMDIR=%GAMEROOT%\ROMs"
-set "INCOMING=%GAMEROOT%\Incoming"
-
-if not exist "%ROMDIR%"   mkdir "%ROMDIR%"
-if not exist "%INCOMING%" mkdir "%INCOMING%"
-echo  [ok] %ROMDIR%
-echo  [ok] %INCOMING%
-
 rem --------------------------------------------------------------- esdeck ---
 echo.
 echo  [..] Installing esdeck
@@ -100,6 +80,46 @@ echo  [ok] esdeck installed
 rem Use "python -m esdeck" throughout: the Scripts folder may not be on PATH
 rem until a new shell is opened.
 set "ESDECK=%PY% -m esdeck"
+
+rem ---------------------------------------------------------------- paths ---
+if defined GAMEROOT (
+    set "UNATTENDED=1"
+) else (
+    echo.
+    echo  Your games can live on any drive. Here is what this PC has:
+    echo.
+    %ESDECK% drives
+    echo.
+    echo  Two folders are created under whichever you choose:
+    echo      ^<folder^>\ROMs       the sorted library ES-DE reads
+    echo      ^<folder^>\Incoming   where you drop new games
+    echo.
+    for /f "delims=" %%d in ('%ESDECK% drives --suggest') do set "SUGGEST=%%d"
+    set /p "GAMEROOT=  Game folder [!SUGGEST!]: "
+    if not defined GAMEROOT set "GAMEROOT=!SUGGEST!"
+)
+
+if not defined GAMEROOT (
+    echo  [X] No folder chosen and no drive could be suggested.
+    echo      Re-run as:  install.bat C:\Games
+    echo.
+    pause
+    exit /b 1
+)
+
+set "ROMDIR=%GAMEROOT%\ROMs"
+set "INCOMING=%GAMEROOT%\Incoming"
+
+if not exist "%ROMDIR%"   mkdir "%ROMDIR%"
+if not exist "%INCOMING%" mkdir "%INCOMING%"
+if not exist "%ROMDIR%" (
+    echo  [X] Could not create %ROMDIR% - is that drive available and writable?
+    echo.
+    pause
+    exit /b 1
+)
+echo  [ok] %ROMDIR%
+echo  [ok] %INCOMING%
 
 %ESDECK% init --rom-dir "%ROMDIR%" --source-dir "%INCOMING%" >nul
 if errorlevel 1 (
