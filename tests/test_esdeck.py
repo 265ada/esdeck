@@ -15,7 +15,7 @@ from esdeck import archives, bios, clean, config, cores, drives  # noqa: E402
 from esdeck import emulators, esde  # noqa: E402
 from esdeck import launcher, plan  # noqa: E402
 from esdeck import readme_parse  # noqa: E402
-from esdeck import scan, tidy  # noqa: E402
+from esdeck import patch, scan, tidy  # noqa: E402
 from esdeck import sniff  # noqa: E402
 from esdeck import systems  # noqa: E402
 
@@ -1043,6 +1043,110 @@ class TestFolderBeatsTitle(ScanFixture):
     def test_title_hint_still_works_without_a_folder_hint(self):
         touch(self.src / "Some PSX Game.pbp")
         self.assertEqual(self.items()["Some PSX Game"].system, "psx")
+
+
+class TestPatching(unittest.TestCase):
+    """Mods: apply IPS/BPS/UPS patches without ever touching the base ROM."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.d = Path(self.td.name)
+        self.base = bytes(range(256)) * 40
+        (self.d / "game.sfc").write_bytes(self.base)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    @staticmethod
+    def _vlq(n: int) -> bytes:
+        out = bytearray()
+        while True:
+            x = n & 0x7F
+            n >>= 7
+            if n == 0:
+                out.append(0x80 | x)
+                break
+            out.append(x)
+            n -= 1
+        return bytes(out)
+
+    def _bps_for(self, base: bytes) -> bytes:
+        import struct
+        import zlib
+        body = (b"BPS1" + self._vlq(len(base)) + self._vlq(len(base))
+                + self._vlq(0) + self._vlq(((len(base) - 1) << 2) | 0))
+        crc = zlib.crc32(base) & 0xFFFFFFFF
+        return body + struct.pack("<I", crc) + struct.pack("<I", crc) + struct.pack("<I", 0)
+
+    def test_ips_applies_and_leaves_the_original_alone(self):
+        ips = (b"PATCH" + (0x100).to_bytes(3, "big") + (4).to_bytes(2, "big")
+               + b"MOD!" + b"EOF")
+        (self.d / "hack.ips").write_bytes(ips)
+        out = self.d / "patched.sfc"
+        result = patch.apply_patch(self.d / "game.sfc", self.d / "hack.ips", out)
+        self.assertEqual(result.format, "ips")
+        self.assertEqual(out.read_bytes()[0x100:0x104], b"MOD!")
+        self.assertEqual((self.d / "game.sfc").read_bytes(), self.base)
+
+    def test_ips_rle_record(self):
+        ips = (b"PATCH" + (0).to_bytes(3, "big") + (0).to_bytes(2, "big")
+               + (5).to_bytes(2, "big") + bytes([0xAB]) + b"EOF")
+        (self.d / "rle.ips").write_bytes(ips)
+        out = self.d / "rle.sfc"
+        patch.apply_patch(self.d / "game.sfc", self.d / "rle.ips", out)
+        self.assertEqual(out.read_bytes()[:5], b"\xab" * 5)
+
+    def test_bps_verifies_the_base_rom(self):
+        (self.d / "hack.bps").write_bytes(self._bps_for(self.base))
+        result = patch.apply_patch(self.d / "game.sfc", self.d / "hack.bps",
+                                   self.d / "out.sfc")
+        self.assertTrue(result.verified)
+
+    def test_bps_refuses_the_wrong_base_rom(self):
+        """Patching the wrong dump makes a game that breaks hours later."""
+        (self.d / "hack.bps").write_bytes(self._bps_for(self.base))
+        (self.d / "other.sfc").write_bytes(b"\x00" * len(self.base))
+        with self.assertRaises(patch.PatchError):
+            patch.apply_patch(self.d / "other.sfc", self.d / "hack.bps",
+                              self.d / "out.sfc")
+
+    def test_unknown_format_is_rejected(self):
+        (self.d / "bad.ips").write_bytes(b"not a patch at all")
+        with self.assertRaises(patch.PatchError):
+            patch.apply_patch(self.d / "game.sfc", self.d / "bad.ips",
+                              self.d / "out.sfc")
+
+    def test_dry_run_writes_nothing(self):
+        (self.d / "hack.bps").write_bytes(self._bps_for(self.base))
+        out = self.d / "out.sfc"
+        patch.apply_patch(self.d / "game.sfc", self.d / "hack.bps", out, dry_run=True)
+        self.assertFalse(out.exists())
+
+    def test_pairs_a_lone_rom_with_every_patch(self):
+        pairs = patch.find_pairs([self.d / "game.sfc", self.d / "a.ips",
+                                  self.d / "b.bps"])
+        self.assertEqual(len(pairs), 2)
+        self.assertTrue(all(str(b).endswith("game.sfc") for b, _ in pairs))
+
+    def test_no_patches_means_no_pairs(self):
+        self.assertEqual(patch.find_pairs([self.d / "game.sfc"]), [])
+
+
+class TestModPlan(ScanFixture):
+    def test_patch_beside_a_rom_becomes_a_patch_action(self):
+        d = self.src / "Zelda Randomizer"
+        d.mkdir(parents=True)
+        (d / "Zelda (USA).sfc").write_bytes(bytes(range(256)) * 4)
+        (d / "Randomizer v3.ips").write_bytes(
+            b"PATCH" + (0).to_bytes(3, "big") + (2).to_bytes(2, "big") + b"HI" + b"EOF")
+        item = self.items()["Zelda Randomizer"]
+        pl = plan.build(item, self.cfg)
+        patches = [a for a in pl["actions"] if a["type"] == "patch"]
+        self.assertEqual(len(patches), 1)
+        self.assertIn("Randomizer v3", Path(patches[0]["dst"]).name)
+        # the unmodified ROM is still copied, so both are playable
+        self.assertTrue(any(a["type"] == "copy" and a["src"].endswith(".sfc")
+                            for a in pl["actions"]))
 
 
 class TestEmulatorChoice(unittest.TestCase):

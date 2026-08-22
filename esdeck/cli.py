@@ -113,10 +113,23 @@ def _describe(item) -> None:
 
 
 def _sources(args, cfg) -> list[Path]:
-    """The folders to scan: an explicit path, else the configured drop folders."""
-    if args.source:
-        return [Path(args.source)]
-    return [Path(d) for d in cfg.source_dirs]
+    """Folders to scan: any given on the command line, else the configured ones.
+
+    Several can be given at once - a whole list of drop folders is scanned in
+    one pass, and duplicates are collapsed so overlapping paths do not sort the
+    same game twice.
+    """
+    given = getattr(args, "source", None)
+    if isinstance(given, str):
+        given = [given]
+    paths = [Path(p) for p in (given or cfg.source_dirs)]
+    seen, out = set(), []
+    for p in paths:
+        key = str(p.resolve()).lower() if p.exists() else str(p).lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
 
 
 def cmd_scan(args) -> int:
@@ -490,6 +503,9 @@ def cmd_clean(args) -> int:
 def cmd_drives(args) -> int:
     """List drives and how much room they have, for choosing where games live."""
     found = drives_mod.list_drives()
+    if args.normalize is not None:
+        _p(drives_mod.normalize_target(args.normalize))
+        return 0
     if args.suggest:
         _p(drives_mod.suggest())
         return 0
@@ -754,12 +770,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_bootstrap)
 
     p = sub.add_parser("scan", help="identify dropped games")
-    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
+    p.add_argument("source", nargs="*", help="one or more folders (default: configured)")
     p.add_argument("--json", help="also write the raw scan to this file")
     p.set_defaults(func=cmd_scan)
 
     p = sub.add_parser("plan", help="build a reviewable install plan")
-    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
+    p.add_argument("source", nargs="*", help="one or more folders (default: configured)")
     p.add_argument("--out")
     p.add_argument("--system", help="force a system for every item")
     p.set_defaults(func=cmd_plan)
@@ -783,7 +799,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_emulators)
 
     p = sub.add_parser("clean", help="delete drop-folder copies already in the library")
-    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
+    p.add_argument("source", nargs="*", help="one or more folders (default: configured)")
     p.add_argument("--yes", action="store_true", help="delete (default is a dry run)")
     p.add_argument("--quick", action="store_true",
                    help="verify by size only instead of hashing the contents")
@@ -792,6 +808,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("drives", help="show drives and free space")
     p.add_argument("--suggest", action="store_true",
                    help="print only the suggested folder, for scripts")
+    p.add_argument("--normalize", metavar="ANSWER",
+                   help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)
 
     p = sub.add_parser("tidy", help="repair an existing library and find duplicates")
@@ -830,7 +848,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_profile)
 
     p = sub.add_parser("sync", help="do everything: sort the drop folder, then finish the setup")
-    p.add_argument("source", nargs="?", help="defaults to the configured drop folder(s)")
+    p.add_argument("source", nargs="*", help="one or more folders (default: configured)")
     p.add_argument("--yes", action="store_true", help="actually do it (default is a dry run)")
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--system", help="force a system for every item")

@@ -12,6 +12,7 @@ import zipfile
 from pathlib import Path
 
 from . import archives
+from . import patch as patch_mod
 from .config import Config
 from .scan import ScanItem, disc_number, clean_title
 
@@ -43,7 +44,7 @@ def entry_point(roms):
 
 _FLAG_ADVICE = {
     "needs_bios": "BIOS/firmware required - place the listed files in the emulator's system folder.",
-    "needs_patch": "A patch must be applied by hand (xdelta/IPS/BPS); esdeck will not patch ROMs.",
+    "needs_patch": "Mentions patching. IPS/BPS/UPS patches found next to a ROM are applied automatically; xdelta and anything else is still manual.",
     "needs_mount": "README says to mount a disc image; prefer letting the emulator load it directly.",
     "needs_serial": "A serial/product key is required during install - enter it yourself.",
     "modifies_executable": "README describes replacing or modifying a game executable. Review manually.",
@@ -167,6 +168,16 @@ def build(item: ScanItem, cfg: Config, *, staging: Path | None = None) -> dict:
                     "extract", src=str(f.path), dst=str(dest_dir), needs_review=True,
                     why=f"{f.ext} needs 7-Zip, which is not installed - "
                         f"run 'esdeck bootstrap --packages 7zip --yes'"))
+
+        # Mods: apply each patch to its base ROM, writing a new file. The
+        # original is copied too, so the unmodded game stays playable.
+        pairs = patch_mod.find_pairs([f.path for f in roms + item.by_kind("patch")])
+        for base_path, patch_path in pairs:
+            stem = Path(base_path).stem
+            suffix = Path(patch_path).stem
+            out = dest_dir / f"{stem} ({suffix}){Path(base_path).suffix}"
+            actions.append(_action("patch", base=str(base_path),
+                                   patch=str(patch_path), dst=str(out)))
 
         # Multi-disc sets get an .m3u so ES-DE shows one entry.
         #

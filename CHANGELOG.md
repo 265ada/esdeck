@@ -6,6 +6,32 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.4.0] - 2026-08-22
+
+### Added
+- **Mods are applied, not just flagged.** IPS, BPS and UPS patches sitting next
+  to a ROM are applied automatically, written as a new file so the unmodified
+  game stays playable. BPS and UPS record a checksum of the ROM they were built
+  for and it is verified first - patching the wrong dump produces a game that
+  looks fine and breaks hours later.
+- **Several drop folders at once.** `scan`, `plan`, `sync` and `clean` take any
+  number of folders, and `esdeck init --source-dir` can be repeated. Overlapping
+  paths are collapsed so nothing is sorted twice.
+- **`sort-games.bat`** for when you only want the sorting, without the setup.
+
+### Fixed
+- **Answering the drive question with just "G" created a folder called G** next
+  to the script instead of using the G: drive - the prompt lists drives as "G:",
+  so a bare letter is the natural answer. Any of `G`, `G:`, `G:\` or a full path
+  now resolves correctly, a relative answer is refused outright, and a stray
+  folder left by the old behaviour is pointed out.
+- **Running esdeck.bat a second time re-ran the whole installer and failed.**
+  Setup was gated on `doctor` exiting 0, but doctor reports a missing BIOS as a
+  problem - which is normal - so every later run went back through the
+  installer, and from the Desktop copy `pip install` had no project to install.
+  Setup now checks whether esdeck is importable and configured, and refuses
+  clearly if run somewhere it cannot install from.
+
 ## [0.3.0] - 2026-08-22
 
 ### Added

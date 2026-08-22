@@ -70,12 +70,30 @@ if not defined PY (
 set "ESDECK=%PY% -m esdeck"
 
 rem Is esdeck already set up on this machine?
-%ESDECK% doctor >nul 2>&1
-set "NEEDS_SETUP=%errorlevel%"
-if not exist "%USERPROFILE%\.esdeck\config.json" set "NEEDS_SETUP=1"
+rem
+rem Deliberately NOT "doctor exited 0": doctor reports a missing BIOS as a
+rem problem, which is normal and expected, and treating that as "not set up"
+rem sent every later run back through the installer.
+set "NEEDS_SETUP=1"
+%PY% -c "import esdeck" >nul 2>&1
+if not errorlevel 1 (
+    if exist "%USERPROFILE%\.esdeck\config.json" set "NEEDS_SETUP=0"
+)
 if defined OPT_SETUP set "NEEDS_SETUP=1"
 
 if "%NEEDS_SETUP%"=="0" goto :sort
+
+rem Setup needs the project files. The copy on the Desktop is only for sorting.
+if not exist "pyproject.toml" (
+    echo  [X] This copy of esdeck.bat cannot install anything - it is on its own.
+    echo.
+    echo      To set this PC up, run esdeck.bat from the folder you unzipped
+    echo      from GitHub ^(the one containing pyproject.toml^).
+    echo      To just sort games on a PC already set up, use sort-games.bat.
+    echo.
+    pause
+    exit /b 1
+)
 
 rem ======================= FIRST RUN: SET EVERYTHING UP =======================
 echo  First run - setting this PC up.
@@ -111,15 +129,37 @@ if not defined GAMEROOT (
     echo      ^<folder^>\ROMs       the sorted library ES-DE reads
     echo      ^<folder^>\Incoming   where you drop new games
     echo.
+    echo  You can answer with just a drive letter ^(G^), a drive ^(G:^) or a
+    echo  full path ^(G:\Games^).
+    echo.
     for /f "delims=" %%d in ('%ESDECK% drives --suggest') do set "SUGGEST=%%d"
     set /p "GAMEROOT=  Game folder [!SUGGEST!]: "
     if not defined GAMEROOT set "GAMEROOT=!SUGGEST!"
 )
+
+rem "G" on its own is a relative path - it used to create a folder called G
+rem next to this script instead of using the G: drive. Normalise it first.
+for /f "delims=" %%n in ('%ESDECK% drives --normalize "%GAMEROOT%"') do set "GAMEROOT=%%n"
 if not defined GAMEROOT (
-    echo  [X] No folder chosen. Re-run as:  esdeck.bat C:\Games
+    echo  [X] That is not a full path. Use a drive letter ^(G^) or a path
+    echo      like G:\Games, then run this again.
     echo.
     pause
     exit /b 1
+)
+echo  [ok] Using %GAMEROOT%
+
+rem An earlier version turned a bare "G" into a folder called G right here.
+rem If one is sitting next to this script, say so - it is not the library.
+for /d %%d in (?) do (
+    if exist "%%d\ROMs" (
+        echo.
+        echo  [!] There is a stray folder "%%~fd" from an earlier run that
+        echo      answered the drive question with just a letter. It is not
+        echo      your library. Once this finishes, you can remove it with:
+        echo          rmdir /s /q "%%~fd"
+        echo.
+    )
 )
 
 set "ROMDIR=%GAMEROOT%\ROMs"
@@ -176,7 +216,8 @@ set "DESKTOP=%USERPROFILE%\Desktop"
 if not exist "%DESKTOP%" set "DESKTOP=%USERPROFILE%\OneDrive\Desktop"
 if exist "%DESKTOP%" (
     copy /y "%~f0" "%DESKTOP%\esdeck.bat" >nul
-    echo  [ok] "esdeck" placed on your Desktop
+    if exist "sort-games.bat" copy /y "sort-games.bat" "%DESKTOP%\sort-games.bat" >nul
+    echo  [ok] "esdeck" and "sort-games" placed on your Desktop
 )
 echo.
 

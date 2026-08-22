@@ -15,8 +15,9 @@ import shutil
 from pathlib import Path
 
 from . import archives
+from . import patch as patch_mod
 
-SAFE_TYPES = {"mkdir", "copy", "copy_tree", "extract", "m3u", "hide"}
+SAFE_TYPES = {"mkdir", "copy", "copy_tree", "extract", "m3u", "hide", "patch"}
 INERT_TYPES = {"manual", "suggested_command", "make_launcher"}
 
 
@@ -111,6 +112,18 @@ def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = No
                 log(f"  hide   {p.name}  ({a.get('why', '')})")
                 if not dry_run and p.exists():
                     set_hidden(p)
+
+            elif kind == "patch":
+                base_p, patch_p = Path(a["base"]), Path(a["patch"])
+                dst = Path(a["dst"]); guard(dst)
+                if dst.exists() and not overwrite:
+                    res.skipped.append(f"patch: {dst.name} already exists")
+                    continue
+                log(f"  mod    {patch_p.name} -> {dst.name}")
+                if not dry_run:
+                    out = patch_mod.apply_patch(base_p, patch_p, dst)
+                    log(f"         {out.format.upper()}"
+                        f"{', base ROM verified' if out.verified else ''}")
 
             elif kind == "m3u":
                 p = Path(a["path"]); guard(p)

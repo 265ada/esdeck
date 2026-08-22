@@ -206,6 +206,35 @@ hand-written map had missed entirely.
 Cores ES-DE names but libretro does not build for Windows are skipped rather than retried
 into a 404.
 
+## Mods and ROM hacks
+
+A patch file next to a ROM is applied automatically:
+
+```
+  copy   Zelda (USA).sfc -> ROMs\snes\Zelda (USA).sfc
+  mod    Randomizer v3.ips -> Zelda (USA) (Randomizer v3).sfc
+         IPS, base ROM verified
+```
+
+IPS, BPS and UPS are supported. The result is written as a **new** file, so the
+unmodified game stays playable, and the original is never altered. BPS and UPS
+record a checksum of the ROM they were built for; esdeck verifies it and refuses
+rather than producing a subtly broken game. xdelta is still a manual step.
+
+## Several drop folders
+
+`scan`, `plan`, `sync` and `clean` all take any number of folders:
+
+```bash
+esdeck sync D:\Incoming E:\Downloads\Games "F:\Old PC\ROMs" --yes
+```
+
+Or record them once so a bare `esdeck sync` covers them all:
+
+```bash
+esdeck init --source-dir D:\Incoming --source-dir E:\Downloads\Games
+```
+
 ## BIOS files
 
 Some systems will not run without console firmware - Saturn, Dreamcast, Mega CD,

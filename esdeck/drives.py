@@ -8,6 +8,7 @@ measures what is actually there, suggests the roomiest, and lets a human pick.
 from __future__ import annotations
 
 import ctypes
+import re
 import shutil
 import string
 from dataclasses import dataclass
@@ -81,6 +82,35 @@ def list_drives() -> list[Drive]:
                            letter.upper() == system_letter))
     found.sort(key=lambda d: d.free, reverse=True)
     return found
+
+
+def normalize_target(text: str, folder_name: str = "Games") -> str:
+    """Turn whatever someone typed at the prompt into an absolute folder.
+
+    The drive list shows entries as "G:", so people reasonably answer "G" - and
+    a bare "G" is a *relative* path, which quietly created a folder called G
+    next to the script instead of using the drive. Anything that names a drive
+    is expanded to <drive>\\<folder_name>; a relative path is rejected outright
+    rather than guessed at.
+
+    Returns "" when the answer cannot be made into an absolute path.
+    """
+    raw = (text or "").strip().strip('"').strip()
+    if not raw:
+        return suggest(folder_name)
+
+    # "G" -> "G:", so the two forms below handle it together.
+    if len(raw) == 1 and raw.isalpha():
+        raw = f"{raw.upper()}:"
+
+    # "G:" or "G:\" - a drive with no folder.
+    if re.fullmatch(r"[A-Za-z]:[\\/]?", raw):
+        return f"{raw[0].upper()}:\\{folder_name}"
+
+    # Anything else must already be absolute: a drive path or a UNC share.
+    if re.match(r"^[A-Za-z]:[\\/]", raw) or raw.startswith("\\\\"):
+        return raw.rstrip("\\/") or raw
+    return ""
 
 
 def suggest(folder_name: str = "Games") -> str:

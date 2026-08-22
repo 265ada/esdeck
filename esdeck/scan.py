@@ -17,6 +17,7 @@ from . import systems as sysmod
 from . import readme_parse
 from . import sniff
 from . import archives
+from . import patch as patch_mod
 
 MAX_DEPTH = 6
 #: Archives we can look inside without an external tool. Everything else needs
@@ -94,6 +95,8 @@ def classify(path: Path) -> str:
     if name in sysmod.INSTALLER_NAMES or (
             ext in sysmod.INSTALLER_EXTS and re.search(r"setup|install", name)):
         return "installer"
+    if ext in patch_mod.PATCH_EXTS:
+        return "patch"          # a mod: applied to a ROM, not a game itself
     if ext in sysmod.ARCHIVE_EXTS:
         return "archive"
     if ext in sysmod.DISC_EXTS:
