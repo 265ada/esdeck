@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from . import systems as sysmod
 from . import readme_parse
 
 MAX_DEPTH = 6
+#: Archives we can look inside without an external tool.
+PEEKABLE_EXTS = (".zip",)
 _TAG_RE = re.compile(r"\s*[\(\[][^)\]]*[\)\]]")
 _DISC_TAG_RE = re.compile(r"\b(?:disc|disk|cd)\s*([1-9])\b", re.I)
 
@@ -43,6 +46,9 @@ class ScanItem:
     candidates: list[str] = field(default_factory=list)
     confidence: str = "low"      # high | medium | low
     reasons: list[str] = field(default_factory=list)
+    archive_contents: dict = field(default_factory=dict)   # rel -> member names
+    opaque_archives: list[str] = field(default_factory=list)  # need 7-Zip to inspect
+    unrecognized: bool = False   # nothing here looks like a game
 
     def by_kind(self, kind: str) -> list[FileInfo]:
         return [f for f in self.files if f.kind == kind]
@@ -61,6 +67,8 @@ class ScanItem:
             "reasons": self.reasons,
             "files": [f.to_dict() for f in self.files],
             "hints": self.hints.to_dict() if self.hints else {},
+            "opaque_archives": self.opaque_archives,
+            "unrecognized": self.unrecognized,
         }
 
 
@@ -81,6 +89,13 @@ def classify(path: Path) -> str:
     if ext in sysmod.INSTALLER_EXTS:
         return "installer"
     return "support"
+
+
+def base_stem(stem: str) -> str:
+    """Stem with disc/tag noise removed, for grouping files of one game."""
+    s = _DISC_TAG_RE.sub("", stem)
+    s = _TAG_RE.sub("", s)
+    return re.sub(r"[\s._-]+", " ", s).strip().lower()
 
 
 def clean_title(name: str) -> str:
@@ -140,7 +155,20 @@ def _resolve_system(item: ScanItem) -> None:
         for key in item.hints.systems:
             vote(key, 3, "readme mentions emulator")
 
-    # 4. Windows installers with no ROM anywhere.
+    # 4. Contents of archives we could open - the payload is usually in there.
+    for rel, members in item.archive_contents.items():
+        exts = {Path(n).suffix.lower() for n in members}
+        if exts & set(sysmod.INSTALLER_EXTS):
+            vote("windows", 4, f"{rel} contains an installer/exe")
+            continue
+        for ext in exts:
+            cands = sysmod.systems_for_ext(ext)
+            if len(cands) == 1:
+                vote(cands[0], 4, f"{rel} contains {ext}")
+            elif cands:
+                item.candidates = sorted(set(item.candidates) | set(cands))
+
+    # 5. Windows installers with no ROM anywhere.
     if item.by_kind("installer") and not any(f.kind in ("rom", "disc") for f in item.files):
         vote("windows", 4, "installer, no ROM")
 
@@ -157,6 +185,36 @@ def _resolve_system(item: ScanItem) -> None:
         item.candidates = [c for c in item.candidates if c != item.system]
 
 
+def archive_members(path: Path) -> list[str] | None:
+    """Names inside an archive, or None when we cannot open it without 7-Zip."""
+    if path.suffix.lower() not in PEEKABLE_EXTS:
+        return None
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return [n for n in zf.namelist() if not n.endswith("/")]
+    except (OSError, zipfile.BadZipFile):
+        return None
+
+
+def _archive_readme(path: Path, members: list[str]) -> readme_parse.ReadmeHints | None:
+    """Read a README stored *inside* a zip, so archived games get hints too."""
+    docs = [n for n in members if sysmod.is_doc(Path(n).name)]
+    if not docs:
+        return None
+    docs.sort(key=lambda n: (n.count("/"), len(n)))
+    try:
+        with zipfile.ZipFile(path) as zf:
+            raw = zf.read(docs[0])[:readme_parse.MAX_BYTES]
+    except (OSError, zipfile.BadZipFile, KeyError):
+        return None
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return readme_parse.parse(raw.decode(enc), f"{path.name}:{docs[0]}")
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
 def scan_item(root: Path) -> ScanItem:
     """Build a ScanItem from one folder (or a single file's parent)."""
     if root.is_file():
@@ -171,6 +229,16 @@ def scan_item(root: Path) -> ScanItem:
             item.hints = readme_parse.parse(readme_parse.read_text(docs[0].path), docs[0].rel)
         except OSError:
             item.hints = None
+
+    # Look inside archives: they hide both the payload and often the README.
+    for f in item.by_kind("archive"):
+        members = archive_members(f.path)
+        if members is None:
+            item.opaque_archives.append(f.rel)
+            continue
+        item.archive_contents[f.rel] = members
+        if item.hints is None:
+            item.hints = _archive_readme(f.path, members)
 
     _resolve_system(item)
     return item
@@ -195,16 +263,45 @@ def should_split(folder: Path) -> bool:
         return False
     if any(p.is_dir() for p in folder.iterdir()):
         return False
-    stems = {p.stem.lower() for p in games}
+    # 'MGS (Disc 1).chd' + 'MGS (Disc 2).chd' collapse to one stem: one game.
+    stems = {base_stem(p.stem) for p in games}
+    if len(games) > 1 and len(stems) == 1:
+        return False
+    # Several distinct games, or a lone ROM sitting in a system-named folder.
     return len(stems) > 1 or sysmod.system_from_hint(folder.name) is not None
 
 
-def scan(source: Path) -> list[ScanItem]:
+#: Loose files that are never a game and never worth reporting as one.
+IGNORE_EXTS = (".txt", ".md", ".nfo", ".diz", ".1st", ".rtf", ".url", ".sfv", ".md5",
+               ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ini", ".log", ".db")
+
+GAME_KINDS = ("rom", "disc", "archive", "installer")
+
+
+def is_container(folder: Path) -> bool:
+    """True for a grouping folder ('Konami Collection/') that holds game folders.
+
+    Such a folder has subdirectories and nothing game-like of its own, so the
+    games are one level down and it should be descended into, not treated as
+    a single game.
+    """
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return False
+    subdirs = [p for p in entries if p.is_dir()]
+    if not subdirs:
+        return False
+    own = [p for p in entries if p.is_file() and classify(p) in GAME_KINDS]
+    return not own
+
+
+def scan(source: Path, _depth: int = 0) -> list[ScanItem]:
     """Scan a drop folder. Each subfolder is one game; loose files are one each."""
     source = Path(source)
     if source.is_file():
         return [scan_item(source)]
-    items = []
+    items: list[ScanItem] = []
     for entry in sorted(source.iterdir(), key=lambda p: p.name.lower()):
         if entry.name.startswith("."):
             continue
@@ -212,10 +309,18 @@ def scan(source: Path) -> list[ScanItem]:
             if should_split(entry):
                 items.extend(scan_item(f) for f in sorted(entry.iterdir())
                              if f.is_file() and classify(f) in ("rom", "disc", "archive"))
+            elif is_container(entry) and _depth < MAX_DEPTH:
+                items.extend(scan(entry, _depth + 1))
             else:
                 items.append(scan_item(entry))
-        elif classify(entry) in ("rom", "disc", "archive", "installer"):
+        elif classify(entry) in GAME_KINDS:
             items.append(scan_item(entry))
+        elif entry.suffix.lower() not in IGNORE_EXTS:
+            # Don't silently drop it - an unknown extension may still be a game.
+            item = scan_item(entry)
+            item.unrecognized = True
+            item.reasons.append(f"unrecognized extension {entry.suffix or '(none)'}")
+            items.append(item)
     return items
 
 

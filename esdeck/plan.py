@@ -18,6 +18,9 @@ PLAN_VERSION = 1
 
 # Systems where a .zip IS the ROM and must never be extracted.
 ZIP_IS_ROM = {"arcade", "neogeo", "mame", "fbneo"}
+# Systems where a game is a whole folder of files (executable + data), not one
+# ROM file. Cherry-picking recognized extensions here would drop the game.
+FOLDER_SYSTEMS = {"dos", "scummvm", "ports"}
 # Multi-file disc formats that belong in a per-game subfolder.
 MULTIFILE_EXTS = {".cue", ".bin", ".ccd", ".img", ".sub", ".mds", ".mdf", ".gdi", ".raw"}
 
@@ -75,7 +78,18 @@ def build(item: ScanItem, cfg: Config) -> dict:
 
     # --- Windows/PC games: install, don't copy ---------------------------
     if system == "windows" or (installers and not roms):
-        actions.append(_action("mkdir", path=str(Path(cfg.install_dir) / item.name)))
+        game_dir = Path(cfg.install_dir) / item.name
+        actions.append(_action("mkdir", path=str(game_dir)))
+
+        # A PC game shipped as an archive still has to be unpacked somewhere.
+        for f in archives:
+            if cfg.auto_extract and f.ext == ".zip":
+                actions.append(_action("extract", src=str(f.path), dst=str(game_dir)))
+            else:
+                actions.append(_action(
+                    "extract", src=str(f.path), dst=str(game_dir), needs_review=True,
+                    why=f"{f.ext} needs an external extractor (7-Zip); verify contents first."))
+
         for f in installers:
             actions.append(_action(
                 "install", exe=str(f.path), cwd=str(f.path.parent),
@@ -85,11 +99,17 @@ def build(item: ScanItem, cfg: Config) -> dict:
         actions.append(_action(
             "make_launcher",
             dest=str(target / f"{item.name}.lnk"),
+            search_in=str(game_dir),
             target_exe=None,
             needs_review=True,
             why="Point this at the installed game .exe so ES-DE can launch it."))
-        if not installers:
-            warnings.append("No installer found for a PC game; check the README steps.")
+        if not installers and not archives:
+            warnings.append("No installer or archive found for a PC game; check the README steps.")
+
+    # --- DOS/ScummVM/ports: the whole folder is the game -----------------
+    elif system in FOLDER_SYSTEMS and item.root.is_dir():
+        actions.append(_action("copy_tree", src=str(item.root),
+                               dst=str(target / item.name), size=item.total_size))
 
     # --- Everything else: place ROMs into <ROMs>/<system>/ ---------------
     else:

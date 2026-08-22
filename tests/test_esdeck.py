@@ -281,5 +281,97 @@ class TestCLI(ScanFixture):
         self.assertTrue((self.roms / "n64" / "Zelda (USA).n64").is_file())
 
 
+class TestMessyLayouts(ScanFixture):
+    """Shapes that real drop folders actually arrive in."""
+
+    def test_publisher_folder_is_descended_into(self):
+        touch(self.src / "Konami Collection" / "Metal Gear Solid" / "MGS.chd")
+        touch(self.src / "Konami Collection" / "Castlevania" / "SOTN.chd")
+        # Two games one level down, not a single item called 'Konami Collection'.
+        self.assertEqual(set(self.items()), {"Metal Gear Solid", "Castlevania"})
+
+    def test_multi_disc_chd_set_is_one_game_not_two(self):
+        for d in (1, 2):
+            touch(self.src / "Konami" / "Metal Gear Solid" / f"MGS (Disc {d}).chd")
+        items = self.items()
+        self.assertEqual(list(items), ["Metal Gear Solid"])
+        self.assertEqual(len(items["Metal Gear Solid"].files), 2)
+
+    def test_lone_rom_in_system_folder_still_named_after_the_game(self):
+        touch(self.src / "SNES" / "Super Mario World (USA).sfc")
+        self.assertEqual(list(self.items()), ["Super Mario World"])
+
+    def test_zip_contents_drive_detection(self):
+        d = self.src / "Space Blaster.zip"
+        d.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(d, "w") as z:
+            z.writestr("Game Files/game.exe", "x")
+            z.writestr("README.txt", "Space Blaster\n1. Unzip and run game.exe\n")
+        item = self.items()["Space Blaster"]
+        self.assertEqual(item.system, "windows")
+
+    def test_readme_inside_zip_is_read(self):
+        p = self.src / "Archived Game.zip"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("game.sfc", "x")
+            z.writestr("README.txt", "Needs the snes bios nothing.bin\n")
+        item = self.items()["Archived Game"]
+        self.assertIsNotNone(item.hints)
+        self.assertIn("needs_bios", item.hints.flags)
+
+    def test_unopenable_archive_is_reported_not_guessed(self):
+        touch(self.src / "Some Game.7z")
+        item = self.items()["Some Game"]
+        self.assertEqual(item.opaque_archives, ["Some Game.7z"])
+        self.assertIsNone(item.system)
+
+    def test_unknown_extension_is_surfaced_not_dropped(self):
+        touch(self.src / "weird-game.xyz")
+        item = self.items()["weird-game"]
+        self.assertTrue(item.unrecognized)
+
+    def test_junk_files_are_ignored(self):
+        touch(self.src / "cover.jpg")
+        touch(self.src / "filelist.sfv")
+        touch(self.src / "Zelda (USA).n64")
+        self.assertEqual(list(self.items()), ["Zelda"])
+
+    def test_base_stem_groups_disc_variants(self):
+        self.assertEqual(scan.base_stem("MGS (Disc 1)"), scan.base_stem("MGS (Disc 2)"))
+        self.assertNotEqual(scan.base_stem("Mario"), scan.base_stem("Zelda"))
+
+    def test_dos_game_folder_is_copied_whole(self):
+        """DOOM.EXE is not a recognized ROM extension - copying only ROMs loses it."""
+        touch(self.src / "DOOM" / "DOOM.EXE")
+        touch(self.src / "DOOM" / "DOOM.WAD")
+        (self.src / "DOOM" / "README.TXT").write_text("Run DOOM.EXE in DOSBox.\n")
+        pl = plan.build(self.items()["DOOM"], self.cfg)
+        trees = [a for a in pl["actions"] if a["type"] == "copy_tree"]
+        self.assertEqual(len(trees), 1)
+        apply_mod.apply_plan(pl, dry_run=False, roots=[str(self.roms)], log=lambda *a: None)
+        for name in ("DOOM.EXE", "DOOM.WAD", "README.TXT"):
+            self.assertTrue((self.roms / "dos" / "DOOM" / name).is_file(), name)
+
+    def test_pc_game_in_a_zip_gets_extracted(self):
+        p = self.src / "Space Blaster.zip"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("Game Files/game.exe", "x")
+        pl = plan.build(self.items()["Space Blaster"], self.cfg)
+        self.assertTrue(any(a["type"] == "extract" for a in pl["actions"]))
+        apply_mod.apply_plan(pl, dry_run=False,
+                             roots=[str(self.roms), str(self.roms / "windows")],
+                             log=lambda *a: None)
+        self.assertTrue(
+            (self.roms / "windows" / "Space Blaster" / "Game Files" / "game.exe").is_file())
+
+    def test_accented_title_survives(self):
+        touch(self.src / "Pokémon Édition Rouge (France).gba")
+        items = self.items()
+        self.assertIn("Pokémon Édition Rouge", items)
+        self.assertEqual(items["Pokémon Édition Rouge"].system, "gba")
+
+
 if __name__ == "__main__":
     unittest.main()

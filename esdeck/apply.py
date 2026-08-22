@@ -14,7 +14,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-SAFE_TYPES = {"mkdir", "copy", "extract", "m3u"}
+SAFE_TYPES = {"mkdir", "copy", "copy_tree", "extract", "m3u"}
 INERT_TYPES = {"manual", "suggested_command", "make_launcher"}
 
 
@@ -86,6 +86,15 @@ def apply_plan(plan: dict, *, dry_run: bool = True, roots: list[str] | None = No
                 if not dry_run:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
+
+            elif kind == "copy_tree":
+                src, dst = Path(a["src"]), Path(a["dst"]); guard(dst)
+                if dst.exists() and not overwrite:
+                    res.skipped.append(f"copy_tree: {dst.name} already exists")
+                    continue
+                log(f"  copydir {src.name}\ -> {dst}")
+                if not dry_run:
+                    shutil.copytree(src, dst, dirs_exist_ok=overwrite)
 
             elif kind == "extract":
                 src, dst = Path(a["src"]), Path(a["dst"]); guard(dst)

@@ -27,6 +27,15 @@ def _p(*a, **kw):
     print(*a, **kw)
 
 
+def _utf8_console() -> None:
+    """Game titles are full of accents; the Windows console defaults to cp1252."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 # --------------------------------------------------------------------- init
 def cmd_init(args) -> int:
     cfg = config.load() if config.CONFIG_PATH.is_file() and not args.force else config.discover()
@@ -61,11 +70,15 @@ def cmd_bootstrap(args) -> int:
 # --------------------------------------------------------------------- scan
 def _describe(item) -> None:
     conf = {"high": "OK  ", "medium": "?   ", "low": "??  "}[item.confidence]
-    sysname = item.system or "UNKNOWN"
+    sysname = item.system or ("UNRECOGNIZED" if item.unrecognized else "UNKNOWN")
     _p(f"{conf} {item.name}  ->  {sysname}  ({len(item.files)} files, "
        f"{item.total_size / 1_048_576:.0f} MB)")
     if item.candidates:
         _p(f"       also plausible: {', '.join(item.candidates)}")
+    for rel in item.opaque_archives:
+        _p(f"       {rel}: cannot inspect without 7-Zip; extract it yourself first")
+    if item.unrecognized:
+        _p("       no recognizable game files - listed so it is not silently skipped")
     if item.hints:
         h = item.hints
         bits = []
@@ -254,6 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    _utf8_console()
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
