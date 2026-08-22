@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import config, launcher, plan, readme_parse, scan, systems  # noqa: E402
+from esdeck import config, esde, launcher, plan, readme_parse, scan, sniff  # noqa: E402
+from esdeck import systems  # noqa: E402
 
 
 def touch(p: Path, size: int = 64) -> Path:
@@ -23,6 +24,20 @@ def touch(p: Path, size: int = 64) -> Path:
 class TestSystems(unittest.TestCase):
     def test_unambiguous_extension(self):
         self.assertEqual(systems.systems_for_ext(".sfc"), ["snes"])
+
+    def test_curated_table_beats_es_de_looseness(self):
+        """ES-DE lists .sfc under gb and gbc too; SNES ROMs must still resolve."""
+        self.assertEqual(systems.systems_for_ext(".sfc")[0], "snes")
+        self.assertEqual(systems.systems_for_ext(".n64")[0], "n64")
+
+    def test_genuinely_ambiguous_extensions_flagged(self):
+        self.assertTrue(systems.is_genuinely_ambiguous(".iso"))
+        self.assertTrue(systems.is_genuinely_ambiguous(".wad"))
+        self.assertFalse(systems.is_genuinely_ambiguous(".n64"))
+
+    def test_tie_break_prefers_common_system(self):
+        """ES-DE has both 'doom' and 'dos'; alphabetical order must not decide."""
+        self.assertEqual(systems.rank_candidates(["doom", "dos"])[0], "dos")
 
     def test_ambiguous_extension_lists_candidates(self):
         self.assertIn("ps2", systems.systems_for_ext(".iso"))
@@ -466,6 +481,135 @@ class TestMessyLayouts(ScanFixture):
         items = self.items()
         self.assertIn("Pokémon Édition Rouge", items)
         self.assertEqual(items["Pokémon Édition Rouge"].system, "gba")
+
+
+class TestDiscSniffing(unittest.TestCase):
+    """Disc extensions are useless (.cue maps to 73 systems); read the disc."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.d = Path(self.td.name)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def _disc(self, name: str, payload: bytes, at: int = 0x9000) -> Path:
+        p = self.d / name
+        data = bytearray(at + len(payload) + 16)
+        data[at:at + len(payload)] = payload
+        p.write_bytes(bytes(data))
+        return p
+
+    def test_playstation_disc(self):
+        p = self._disc("game.bin", b"PLAYSTATION SYSTEM.CNF BOOT=cdrom:SLUS_012.34;1")
+        self.assertEqual(sniff.identify(p), "psx")
+
+    def test_playstation_2_told_apart_by_boot2(self):
+        p = self._disc("game.iso", b"PLAYSTATION SYSTEM.CNF BOOT2=cdrom0:SLUS_202.02;1")
+        self.assertEqual(sniff.identify(p), "ps2")
+
+    def test_saturn_and_dreamcast(self):
+        self.assertEqual(sniff.identify(self._disc("s.bin", b"SEGA SEGASATURN ")), "saturn")
+        self.assertEqual(sniff.identify(self._disc("d.gdi", b"SEGA SEGAKATANA ")), "dreamcast")
+
+    def test_gamecube_magic_at_offset(self):
+        p = self.d / "g.iso"
+        data = bytearray(4096)
+        data[0x1C:0x20] = bytes([0xC2, 0x33, 0x9F, 0x3D])
+        p.write_bytes(bytes(data))
+        self.assertEqual(sniff.identify(p), "gc")
+
+    def test_cue_is_followed_to_its_bin(self):
+        self._disc("game.bin", b"PLAYSTATION BOOT=cdrom:")
+        cue = self.d / "game.cue"
+        cue.write_text('FILE "game.bin" BINARY\n  TRACK 01 MODE2/2352\n')
+        self.assertEqual(sniff.identify(cue), "psx")
+
+    def test_cue_pointing_at_a_missing_file_is_not_guessed(self):
+        cue = self.d / "broken.cue"
+        cue.write_text('FILE "nope.bin" BINARY\n')
+        self.assertIsNone(sniff.identify(cue))
+
+    def test_unknown_disc_returns_none(self):
+        self.assertIsNone(sniff.identify(self._disc("x.bin", b"nothing recognisable")))
+
+    def test_chd_is_left_ambiguous(self):
+        """CHD payloads are compressed; guessing would be worse than asking."""
+        p = self.d / "game.chd"
+        p.write_bytes(b"MComprHD" + bytes(512))
+        self.assertIsNone(sniff.identify(p))
+        self.assertTrue(sniff.is_chd(p))
+
+
+class TestMultiDiscFolders(ScanFixture):
+    def _psx_disc_folder(self, title: str, disc: int):
+        d = self.src / f"{title} (USA) (Disc {disc})"
+        d.mkdir(parents=True)
+        binf = d / f"{title} (USA) (Disc {disc}).bin"
+        data = bytearray(0x9100)
+        payload = b"PLAYSTATION BOOT=cdrom:SLUS_012;1  "
+        data[0x9000:0x9000 + len(payload)] = payload
+        binf.write_bytes(bytes(data))
+        (d / f"{title} (USA) (Disc {disc}).cue").write_text(
+            'FILE "' + binf.name + '" BINARY\n  TRACK 01 MODE2/2352\n')
+
+    def test_four_disc_folders_become_one_game(self):
+        for n in (1, 2, 3, 4):
+            self._psx_disc_folder("Legend of Dragoon, The", n)
+        items = list(self.items().values())
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].system, "psx")
+        self.assertEqual(len(items[0].files), 8)
+
+    def test_merged_game_gets_one_m3u_in_disc_order(self):
+        for n in (1, 2, 3):
+            self._psx_disc_folder("Some RPG", n)
+        item = list(self.items().values())[0]
+        pl = plan.build(item, self.cfg)
+        m3u = [a for a in pl["actions"] if a["type"] == "m3u"]
+        self.assertEqual(len(m3u), 1)
+        self.assertEqual([e[-12:] for e in m3u[0]["entries"]],
+                         ["(Disc 1).cue", "(Disc 2).cue", "(Disc 3).cue"])
+
+    def test_different_games_are_not_merged(self):
+        self._psx_disc_folder("Game A", 1)
+        self._psx_disc_folder("Game B", 1)
+        self.assertEqual(len(self.items()), 2)
+
+    def test_sniffing_beats_an_ambiguous_extension(self):
+        """.bin/.cue alone could be six systems; the disc contents decide."""
+        self._psx_disc_folder("Solo Game", 1)
+        item = list(self.items().values())[0]
+        self.assertEqual(item.system, "psx")
+        self.assertEqual(item.confidence, "high")
+
+
+class TestEsDeSystemTable(unittest.TestCase):
+    def test_parses_a_systems_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "es_systems.xml"
+            p.write_text(
+                '<?xml version="1.0"?><systemList>'
+                '<system><name>psx</name><fullname>Sony PlayStation</fullname>'
+                '<extension>.cue .CUE .chd</extension></system>'
+                '<system><name>n64</name><fullname>Nintendo 64</fullname>'
+                '<extension>.n64 .z64</extension></system>'
+                '</systemList>', encoding="utf-8")
+            table = esde.parse(p)
+            self.assertEqual(set(table), {"psx", "n64"})
+            self.assertEqual(table["psx"].fullname, "Sony PlayStation")
+            self.assertIn(".cue", table["psx"].exts)
+
+    def test_extension_index_maps_many_systems(self):
+        table = {"a": esde.EsSystem("a", "A", {".iso"}),
+                 "b": esde.EsSystem("b", "B", {".iso"})}
+        self.assertEqual(set(esde.extension_index(table)[".iso"]), {"a", "b"})
+
+    def test_malformed_file_is_not_fatal(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "es_systems.xml"
+            p.write_text("<systemList><system><name>", encoding="utf-8")
+            self.assertEqual(esde.parse(p), {})
 
 
 if __name__ == "__main__":

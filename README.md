@@ -59,34 +59,54 @@ you everything it would do; add `--yes` to actually do it.
 
 ## How intake works
 
-Detection **never depends on a README existing.** Files are classified first — ROM, disc image,
-archive, installer, doc, support — and the system is chosen by weighted vote:
+Detection **never depends on a README existing**, and it does not trust file extensions
+further than it should. ES-DE maps `.cue` to 73 different systems and `.bin` to 122, so an
+extension is often nearly meaningless.
+
+**Disc images are identified by reading them.** Every console stamps a signature in its
+boot area, so esdeck opens the image and looks:
+
+| Signature | System |
+| --- | --- |
+| `PLAYSTATION` + `BOOT=` in SYSTEM.CNF | `psx` |
+| `PLAYSTATION` + `BOOT2=` in SYSTEM.CNF | `ps2` |
+| `SEGA SEGASATURN` / `SEGA SEGAKATANA` / `SEGADISCSYSTEM` | `saturn` / `dreamcast` / `megacd` |
+| magic `C2339F3D` at 0x1C, `5D1C9EA3` at 0x18 | `gc` / `wii` |
+
+A `.cue` is followed to the `.bin` it points at. CHD files stay ambiguous on purpose - the
+payload is compressed and identifying it would need `chdman`, so esdeck asks rather than
+guesses.
+
+Where the contents cannot decide, a weighted vote does:
 
 | Signal | Weight |
 | --- | --- |
-| Unambiguous ROM extension (`.sfc`, `.n64`, …) | 5 |
-| Installer present with no ROM anywhere → `windows` | 4 |
-| Folder-name hint (`PSX Games/`, `Sony PlayStation 2/`) | 3 |
-| README naming an emulator (PCSX2 → `ps2`) | 3 |
+| Disc signature read from the image | 8 |
+| Unambiguous ROM extension (`.sfc`, `.n64`) | 5 |
+| Extension claimed by 2-3 systems, most common first | 4 |
+| Installer present with no ROM anywhere -> `windows` | 4 |
+| Folder-name hint (`PSX Games/`, `Sony PlayStation/`) | 3 |
+| README naming an emulator (PCSX2 -> `ps2`) | 3 |
 
-Ambiguous extensions (`.iso`, `.cue`, `.chd`, `.zip`) never decide anything on their own — they
-record *candidates*. Each item comes out as `high`, `medium` or `low` confidence, and `esdeck scan`
-shows you the reasoning:
+Ties break by how common a system is, never alphabetically - ES-DE ships both a `doom` and a
+`dos` system, and a DOS game should not land in `doom` because `d-o-o` sorts first.
 
-```
-OK   Super Mario World  ->  snes   (1 files, 1 MB)
-?    Final Fantasy VII  ->  psx    (7 files, 1300 MB)
-       also plausible: saturn, dreamcast, pcengine
-       readme README.txt: flags: needs_bios; emulators: retroarch,duckstation
-??   Some Unknown Game  ->  UNKNOWN
-       also plausible: gc, ps2, ps3, psp, saturn, wii, windows
-```
+### All 195 ES-DE systems
 
-Force one with `esdeck plan <dir> --system ps2`, or just edit the JSON plan before applying.
+esdeck reads ES-DE's own `es_systems.xml` for the list of systems and the extensions each
+accepts, so it covers everything the installed ES-DE covers, including systems added by
+later ES-DE releases and anything you define in `custom_systems/`.
+
+That table is used for *coverage*, not for precision: it is deliberately permissive (it
+lists `.sfc` under `gb` and `gbc`), so a small curated table takes priority where it knows
+which system actually owns an extension. Extensions the curated table has never heard of -
+`.vpk`, `.wua`, `.dosz` and the rest - resolve through ES-DE's table.
 
 Behaviour worth knowing:
 
-- **Multi-disc sets** (`Game (Disc 1).cue`, `Disc 2`, …) get an `.m3u` playlist so ES-DE shows one entry.
+- **Multi-disc sets get an `.m3u`** so ES-DE shows one entry. This works whether the discs are
+  files in one folder or, as they usually arrive, four sibling folders named
+  `Game (USA) (Disc 1)` … `(Disc 4)` - those are merged into a single game.
 - **Arcade/Neo Geo `.zip` files are copied, never extracted** — the zip *is* the ROM there.
 - **A folder of loose ROMs** (`SNES Games/`) splits into one entry per game; a folder with a README,
   an installer, or a `.cue`+`.bin` set stays a single game.

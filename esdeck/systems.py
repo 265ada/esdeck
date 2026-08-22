@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import esde
+
 
 @dataclass(frozen=True)
 class System:
@@ -95,15 +97,80 @@ for _e, _keys in AMBIGUOUS_EXTS.items():
             _EXT_INDEX[_e].append(_k)
 
 
-def systems_for_ext(ext: str) -> list[str]:
-    """Candidate system keys for a file extension, best guess first."""
-    return list(_EXT_INDEX.get(ext.lower(), []))
 
 
-def system_from_hint(text: str) -> str | None:
+# --------------------------------------------------------------------------
+# ES-DE is the source of truth for which systems exist and what extensions
+# they take. The curated table above only supplies folder-name aliases and a
+# sensible ordering, because one extension maps to dozens of systems (.cue
+# alone matches 73) and the common ones should be offered first.
+# --------------------------------------------------------------------------
+
+#: Rough popularity order, used to rank otherwise-equal candidates.
+PREFERRED_ORDER = (
+    "snes", "nes", "n64", "gb", "gbc", "gba", "nds", "n3ds", "gc", "wii",
+    "psx", "ps2", "psp", "megadrive", "mastersystem", "genesis", "saturn",
+    "dreamcast", "megacd", "arcade", "neogeo", "pcengine", "pcenginecd",
+    "atari2600", "dos", "scummvm", "windows", "switch", "ps3", "wiiu",
+)
+_PREF_INDEX = {k: i for i, k in enumerate(PREFERRED_ORDER)}
+
+
+def es_systems(es_config_dir=None) -> dict:
+    """Every system the installed ES-DE supports, or {} if it is not installed."""
+    return esde.load(str(es_config_dir) if es_config_dir else None)
+
+
+def known_systems(es_config_dir=None) -> set:
+    """Valid --system values: everything ES-DE knows, plus our built-ins."""
+    return set(es_systems(es_config_dir)) | set(BY_KEY)
+
+
+def rank_candidates(keys) -> list:
+    """Common systems first, then alphabetical - stable and predictable."""
+    return sorted(keys, key=lambda k: (_PREF_INDEX.get(k, len(PREFERRED_ORDER)), k))
+
+
+def is_genuinely_ambiguous(ext: str) -> bool:
+    """True for extensions that mean different things on different systems.
+
+    .wad is a Doom level or a Wii channel; .iso is any of a dozen consoles.
+    These must never be decided on the extension alone, however few candidates
+    there happen to be - the file's contents or the user decide instead.
+    """
+    return ext.lower() in AMBIGUOUS_EXTS
+
+
+def systems_for_ext(ext: str, es_config_dir=None) -> list[str]:
+    """Candidate system keys for a file extension, most likely first.
+
+    The curated table wins where it has an opinion, because it encodes which
+    system actually *owns* an extension. ES-DE's table is far broader but far
+    looser - it lists .sfc under gb and gbc, so trusting it blindly would stop
+    ordinary SNES ROMs from resolving at all.
+
+    For everything the curated table does not cover, ES-DE's table supplies the
+    candidates, which is what lets esdeck handle all 195 of its systems.
+    """
+    ext = ext.lower()
+    curated = _EXT_INDEX.get(ext)
+    if curated:
+        return list(curated)
+    return rank_candidates(esde.extension_index(es_systems(es_config_dir)).get(ext, []))
+
+
+def system_from_hint(text: str, es_config_dir=None) -> str | None:
     """Resolve a folder or archive name to a system key, e.g. 'PSX Games'."""
     t = " " + text.lower().replace("_", " ").replace("-", " ") + " "
     best: tuple[int, str] | None = None
+
+    # ES-DE's full names first, e.g. a folder called "Sony PlayStation".
+    for key, sysdef in es_systems(es_config_dir).items():
+        for cand in (key, sysdef.fullname.lower()):
+            if cand and (f" {cand} " in t or t.strip() == cand):
+                if best is None or len(cand) > best[0]:
+                    best = (len(cand), key)
+
     for s in SYSTEMS:
         for cand in (s.key, s.name.lower(), *s.aliases):
             c = cand.lower()

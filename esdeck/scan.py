@@ -15,10 +15,13 @@ from pathlib import Path
 
 from . import systems as sysmod
 from . import readme_parse
+from . import sniff
 
 MAX_DEPTH = 6
 #: Archives we can look inside without an external tool.
 PEEKABLE_EXTS = (".zip",)
+#: An extension claimed by at most this many systems is decisive enough to use.
+EXT_DECIDES_UP_TO = 3
 _TAG_RE = re.compile(r"\s*[\(\[][^)\]]*[\)\]]")
 _DISC_TAG_RE = re.compile(r"\b(?:disc|disk|cd)\s*([1-9])\b", re.I)
 
@@ -40,6 +43,7 @@ class ScanItem:
     """One prospective game: a top-level folder, or a single loose file."""
     root: Path
     name: str
+    raw_name: str = ""           # folder/file name before tag cleanup
     files: list[FileInfo] = field(default_factory=list)
     hints: readme_parse.ReadmeHints | None = None
     system: str | None = None
@@ -139,23 +143,43 @@ def _resolve_system(item: ScanItem) -> None:
             vote(hit, 3, f"name hint {part!r}")
             break
 
-    # 2. Unambiguous ROM extensions are the strongest signal.
+    # 2. Look inside disc images - the disc states what console it is, which
+    #    beats every filename-based guess.
+    sniffed = False
     for f in item.files:
-        if f.kind in ("rom", "disc"):
-            cands = sysmod.systems_for_ext(f.ext)
-            if len(cands) == 1:
-                vote(cands[0], 5, f"extension {f.ext}")
-            elif cands:
-                for c in cands:
-                    votes.setdefault(c, 0)
-                item.candidates = sorted(set(item.candidates) | set(cands))
+        if f.kind == "disc":
+            hit = sniff.identify(f.path)
+            if hit:
+                vote(hit, 8, f"disc signature in {f.rel}")
+                sniffed = True
+                break
 
-    # 3. README hints (emulator names) - weak, corroborating only.
+    # 3. Extensions. How much an extension is worth depends on how many systems
+    #    claim it: .n64 means one of two things, .cue means one of seventy-three.
+    for f in item.files:
+        if f.kind not in ("rom", "disc"):
+            continue
+        cands = sysmod.systems_for_ext(f.ext)
+        if not cands:
+            continue
+        if sysmod.is_genuinely_ambiguous(f.ext):
+            if not sniffed:
+                item.candidates = sorted(set(item.candidates) | set(cands[:8]))
+        elif len(cands) == 1:
+            vote(cands[0], 5, f"extension {f.ext}")
+        elif len(cands) <= EXT_DECIDES_UP_TO and not sniffed:
+            # Few enough to call it, ranked most-common-first, but say so.
+            vote(cands[0], 4, f"extension {f.ext} (of {len(cands)} candidates)")
+            item.candidates = sorted(set(item.candidates) | set(cands[1:]))
+        elif not sniffed:
+            item.candidates = sorted(set(item.candidates) | set(cands[:8]))
+
+    # 4. README hints (emulator names) - weak, corroborating only.
     if item.hints:
         for key in item.hints.systems:
             vote(key, 3, "readme mentions emulator")
 
-    # 4. Contents of archives we could open - the payload is usually in there.
+    # 5. Contents of archives we could open - the payload is usually in there.
     for rel, members in item.archive_contents.items():
         exts = {Path(n).suffix.lower() for n in members}
         if exts & set(sysmod.INSTALLER_EXTS):
@@ -168,13 +192,16 @@ def _resolve_system(item: ScanItem) -> None:
             elif cands:
                 item.candidates = sorted(set(item.candidates) | set(cands))
 
-    # 5. Windows installers with no ROM anywhere.
+    # 6. Windows installers with no ROM anywhere.
     if item.by_kind("installer") and not any(f.kind in ("rom", "disc") for f in item.files):
         vote("windows", 4, "installer, no ROM")
 
     if votes:
         top = max(votes.values())
-        winners = sorted(k for k, v in votes.items() if v == top)
+        # Break ties by how common the system is, not alphabetically: ES-DE has
+        # both "doom" and "dos", and a DOS game should not land in "doom"
+        # purely because d-o-o sorts before d-o-s.
+        winners = sysmod.rank_candidates([k for k, v in votes.items() if v == top])
         if top == 0:
             item.confidence = "low"
         else:
@@ -219,9 +246,11 @@ def scan_item(root: Path) -> ScanItem:
     """Build a ScanItem from one folder (or a single file's parent)."""
     if root.is_file():
         files = [FileInfo(root, root.name, root.stat().st_size, classify(root), root.suffix.lower())]
-        item = ScanItem(root=root.parent, name=clean_title(root.name), files=files)
+        item = ScanItem(root=root.parent, name=clean_title(root.name),
+                        raw_name=root.name, files=files)
     else:
-        item = ScanItem(root=root, name=clean_title(root.name), files=_walk(root))
+        item = ScanItem(root=root, name=clean_title(root.name),
+                        raw_name=root.name, files=_walk(root))
 
     docs = sorted(item.by_kind("doc"), key=lambda f: (f.rel.count(os.sep), len(f.rel)))
     if docs:
@@ -321,9 +350,55 @@ def scan(source: Path, _depth: int = 0) -> list[ScanItem]:
             item.unrecognized = True
             item.reasons.append(f"unrecognized extension {entry.suffix or '(none)'}")
             items.append(item)
-    return items
+    return group_multi_disc(items)
 
 
 def disc_number(name: str) -> int | None:
     m = _DISC_TAG_RE.search(name)
     return int(m.group(1)) if m else None
+
+
+def group_multi_disc(items: list[ScanItem]) -> list[ScanItem]:
+    """Merge sibling folders that are discs of one game.
+
+    A four-disc PSX game usually arrives as four folders - 'Game (Disc 1)',
+    'Game (Disc 2)', ... - which are one game, not four. They are merged so the
+    library gets a single entry with an .m3u playlist.
+    """
+    groups: dict[tuple, list[ScanItem]] = {}
+    order: list = []
+    for item in items:
+        raw = item.raw_name or item.name
+        key = (base_stem(Path(raw).stem), item.system, str(item.root.parent))
+        if disc_number(raw) is None:
+            key = (id(item),)          # not a disc: never merges
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(item)
+
+    merged = []
+    for key in order:
+        group = groups[key]
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        group.sort(key=lambda i: disc_number(i.raw_name or i.name) or 0)
+        first = group[0]
+        combined = ScanItem(
+            root=first.root.parent,
+            name=clean_title(first.raw_name or first.name),
+            system=first.system,
+            candidates=first.candidates,
+            confidence=first.confidence,
+            hints=next((i.hints for i in group if i.hints), None),
+        )
+        for i in group:
+            for f in i.files:
+                # Keep paths absolute; rel is only used for display from here.
+                combined.files.append(FileInfo(f.path, str(Path(i.raw_name or i.name) / f.rel),
+                                               f.size, f.kind, f.ext))
+        combined.reasons = first.reasons + [
+            f"merged {len(group)} disc folders into one game"]
+        merged.append(combined)
+    return merged
