@@ -1640,6 +1640,45 @@ class TestUpdater(unittest.TestCase):
         text = "x = 1\n__version__ = \"1.2.3\"\ny = 2"
         self.assertEqual(update._VERSION_RE.search(text).group(1), "1.2.3")
 
+    SAMPLE = chr(10).join([
+        "# Changelog", "",
+        "## [0.9.0] - 2026-08-22", "",
+        "### Added", "- Newest thing.", "",
+        "## [0.8.0] - 2026-08-21", "",
+        "### Fixed", "- Middle thing that was",
+        "  wrapped across two lines.", "",
+        "## [0.7.0] - 2026-08-20", "",
+        "### Added", "- Oldest thing.", ""])
+
+    def test_sections_are_split_out(self):
+        got = update.split_sections(self.SAMPLE)
+        self.assertEqual([v for v, _d, _b in got], ["0.9.0", "0.8.0", "0.7.0"])
+        self.assertEqual(got[0][1], "2026-08-22")
+
+    def test_every_missed_version_is_listed_oldest_first(self):
+        """Several updates behind should read forwards, not backwards."""
+        got = update.changes_since("0.7.0", self.SAMPLE)
+        self.assertEqual([v for v, _d, _b in got], ["0.8.0", "0.9.0"])
+
+    def test_nothing_missed_when_current(self):
+        self.assertEqual(update.changes_since("0.9.0", self.SAMPLE), [])
+
+    def test_wrapped_bullets_are_rejoined(self):
+        text = update.format_changes(update.changes_since("0.7.0", self.SAMPLE))
+        self.assertIn("Middle thing that was wrapped across two lines.", text)
+
+    def test_headings_and_versions_appear(self):
+        text = update.format_changes(update.changes_since("0.7.0", self.SAMPLE))
+        self.assertIn("Version 0.8.0", text)
+        self.assertIn("FIXED", text)
+        self.assertIn("Newest thing", text)
+
+    def test_markdown_marks_are_stripped(self):
+        text = update.format_changes(
+            [("1.0.0", "", "- A **bold** thing with `code`.")])
+        self.assertNotIn("**", text)
+        self.assertNotIn("`", text)
+
     def test_bats_are_only_copied_when_different(self):
         with tempfile.TemporaryDirectory() as td:
             src, dst = Path(td) / "src", Path(td) / "dst"

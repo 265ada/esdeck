@@ -6,6 +6,14 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.9.1] - 2026-08-22
+
+### Added
+- **The changelog is shown before you are asked to update.** Every version you
+  missed is listed in order, oldest first, with what changed in each - so being
+  several updates behind explains itself instead of arriving as one opaque
+  jump. Only then does it ask "Update now?".
+
 ## [0.9.0] - 2026-08-22
 
 ### Added

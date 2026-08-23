@@ -38,6 +38,8 @@ VERSION_URL = (f"https://api.github.com/repos/{REPO}/contents/esdeck/__init__.py
 VERSION_URL_FALLBACK = (f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
                         f"/esdeck/__init__.py")
 ZIP_URL = f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}"
+CHANGELOG_URL = (f"https://api.github.com/repos/{REPO}/contents/CHANGELOG.md"
+                 f"?ref={BRANCH}")
 USER_AGENT = f"esdeck/{__version__} (+https://github.com/{REPO})"
 TIMEOUT = 60
 
@@ -86,6 +88,88 @@ def latest_version() -> str | None:
         if m:
             return m.group(1)
     return None
+
+
+#: "## [0.9.0] - 2026-08-22" at the head of each changelog section.
+_SECTION_RE = re.compile(r"^##\s*\[?v?([0-9][0-9.]*)\]?\s*(?:-\s*(.*))?$", re.M)
+
+
+def fetch_changelog() -> str | None:
+    """The project's CHANGELOG.md from GitHub, or None if unreachable."""
+    try:
+        return _get(CHANGELOG_URL, timeout=30, raw=True).decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def split_sections(text: str) -> list:
+    """[(version, date, body), ...] newest first, as the file is written."""
+    out = []
+    matches = list(_SECTION_RE.finditer(text or ""))
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[m.end():end].strip()
+        out.append((m.group(1), (m.group(2) or "").strip(), body))
+    return out
+
+
+def changes_since(current: str, text: str) -> list:
+    """Every section newer than `current`, oldest first.
+
+    Oldest first on purpose: read top to bottom and it reads as the story of
+    what changed while you were behind, rather than a list to read backwards.
+    """
+    newer = [(v, d, b) for v, d, b in split_sections(text)
+             if _as_tuple(v) > _as_tuple(current)]
+    return list(reversed(newer))
+
+
+def format_changes(sections, *, width: int = 74) -> str:
+    """Missed changelog entries, wrapped and de-marked-down for a console."""
+    import textwrap
+    if not sections:
+        return ""
+    lines = []
+    for version, date, body in sections:
+        lines.append("")
+        lines.append("  " + "-" * (width - 2))
+        lines.append(f"   Version {version}" + (f"    {date}" if date else ""))
+        lines.append("  " + "-" * (width - 2))
+        # The source is already hard-wrapped, so continuation lines have to be
+        # joined back onto their bullet before re-wrapping - otherwise every
+        # fragment gets wrapped on its own and the result is ragged.
+        buffer, is_bullet = [], False
+
+        def flush():
+            if not buffer:
+                return
+            plain = " ".join(buffer).replace("**", "").replace("`", "")
+            lines.extend(textwrap.wrap(
+                plain, width=width,
+                initial_indent="    - " if is_bullet else "      ",
+                subsequent_indent="      "))
+            buffer.clear()
+
+        for para in body.splitlines():
+            stripped = para.strip()
+            if not stripped:
+                flush()
+                continue
+            if stripped.startswith("###"):
+                flush()
+                lines.append("")
+                lines.append("   " + stripped.lstrip("#").strip().upper())
+                continue
+            if stripped.startswith(("- ", "* ")):
+                flush()
+                is_bullet = True
+                buffer.append(stripped[2:])
+            else:
+                if not buffer:
+                    is_bullet = False
+                buffer.append(stripped)
+        flush()
+    return "\n".join(lines)
 
 
 def check(force: bool = False) -> Available | None:

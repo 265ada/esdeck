@@ -38,10 +38,28 @@ if not defined OPT_NOUPDATE (
     cls
     echo.
     echo   Checking for updates...
-    echo.
-    %ESDECK% update --yes --bat-dir "%~dp0."
-    echo.
-    timeout /t 2 >nul
+    %ESDECK% update --check >nul 2>&1
+    if errorlevel 2 (
+        echo   Could not reach GitHub - carrying on with what is installed.
+        timeout /t 2 >nul
+    ) else if errorlevel 1 (
+        echo   Already up to date.
+        timeout /t 1 >nul
+    ) else (
+        cls
+        rem Show what changed first - updating blind is unpleasant.
+        %ESDECK% update
+        echo.
+        set "DOUPD="
+        set /p "DOUPD=  Update now? [Y/n] "
+        if /i not "!DOUPD!"=="n" (
+            echo.
+            %ESDECK% update --yes --bat-dir "%~dp0."
+            echo.
+            echo   Press any key to continue.
+            pause >nul
+        )
+    )
 )
 
 :menu

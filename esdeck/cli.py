@@ -699,7 +699,7 @@ def make_shortcut(link: Path, target: Path, icon_path: Path | None = None,
 
 # ------------------------------------------------------------------- update
 def cmd_update(args) -> int:
-    """Check GitHub for a newer esdeck and install it."""
+    """Check GitHub for a newer esdeck, show what changed, and install it."""
     if args.check:
         found = update_mod.check(force=True)
         if found is None:
@@ -708,7 +708,7 @@ def cmd_update(args) -> int:
         _p(f"installed {found.current}, available {found.version}")
         return 0 if found.newer else 1
 
-    _p(f"esdeck {__version__} - checking for updates...")
+    _p(f"ThuggyEmuAutomation {__version__} - checking for updates...")
     found = update_mod.check(force=True)
     if found is None:
         _p("  could not reach GitHub - carrying on with what is installed.")
@@ -717,11 +717,31 @@ def cmd_update(args) -> int:
         _p(f"  already up to date ({found.current}).")
         return 0
 
-    _p(f"  {found.version} is available (you have {found.current}).")
+    _p("")
+    _p(f"  Update available: {found.current}  ->  {found.version}")
+
+    # Show what changed before asking. Every missed version is listed in
+    # order, so being several behind explains itself rather than arriving as
+    # one opaque jump.
+    text = update_mod.fetch_changelog()
+    sections = update_mod.changes_since(found.current, text) if text else []
+    if sections:
+        count = len(sections)
+        _p("")
+        _p(f"  {count} update{'s' if count > 1 else ''} since your version"
+           f"{' - oldest first' if count > 1 else ''}:")
+        _p(update_mod.format_changes(sections))
+    elif text:
+        _p("  (no changelog entries found for these versions)")
+    else:
+        _p("  (could not fetch the changelog)")
+
     if not args.yes:
+        _p("")
         _p("  Re-run with --yes to install it.")
         return 0
 
+    _p("")
     bat_dir = Path(args.bat_dir) if args.bat_dir else None
     if update_mod.download_and_install(bat_dir=bat_dir, log=_p):
         _p(f"  updated to {found.version}.")
