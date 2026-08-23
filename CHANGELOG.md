@@ -6,6 +6,28 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.13.0] - 2026-08-23
+
+### Added
+- **Freeing up space now ends with the figures that matter.** Every run closes
+  with how many files were deleted, how much room that gave back, and how many
+  were kept because they could not be verified against the library. A dry run
+  says what it *would* delete and free, so the number you agree to is the number
+  you get. Reading a wall of per-file lines and adding it up yourself was never
+  a reasonable thing to ask.
+
+  Empty folders removed are counted too, when there are any.
+
+### Changed
+- **The title bar carries the Snorlax icon.** `/win32icon` only stamps the icon
+  on the file itself; the icon a window shows in its own title bar and in the
+  taskbar is separate, and was still the default. The .ico is now compiled in
+  and loaded at startup, so a moved or renamed .exe keeps it.
+
+- Sizes in the space report read in whatever unit suits them - KB, MB, GB -
+  rather than always being expressed in gigabytes, where anything small showed
+  as `0.00 GB`.
+
 ## [0.12.0] - 2026-08-23
 
 ### Changed

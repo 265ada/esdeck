@@ -51,6 +51,7 @@ namespace ThuggyEmuAutomation
             Font = new Font("Segoe UI", 9.75f);
             DoubleBuffered = true;
             LoadBackground();
+            LoadIcon();
 
             titleLabel = new Label();
             titleLabel.Text = "ThuggyEmuAutomation";
@@ -216,6 +217,27 @@ namespace ThuggyEmuAutomation
             b.BackColor = Color.FromArgb(34, 41, 58);
             b.ForeColor = Color.White;
             b.Cursor = Cursors.Hand;
+        }
+
+        // -------------------------------------------------------------- icon
+
+        private void LoadIcon()
+        {
+            // The compiled-in copy first, so a moved .exe keeps its Snorlax.
+            try
+            {
+                using (Stream st = System.Reflection.Assembly.GetExecutingAssembly()
+                        .GetManifestResourceStream("appicon.ico"))
+                    if (st != null) { Icon = new Icon(st); return; }
+            }
+            catch { }
+            try
+            {
+                string path = Path.Combine(Path.Combine(appDir, "assets"),
+                                           "ThuggyEmuAutomation.ico");
+                if (File.Exists(path)) Icon = new Icon(path);
+            }
+            catch { }
         }
 
         // -------------------------------------------------------- background

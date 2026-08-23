@@ -580,11 +580,12 @@ def cmd_clean(args) -> int:
        + (" (size only)" if args.quick else " (full content hash)") + " ...")
     report = clean_mod.survey(sources, roots, quick=args.quick)
 
+    removed = freed = pruned = 0
     if report.safe:
         _p("")
         _p(f"{len(report.safe)} file(s) safely in the library, "
-           f"{report.reclaimable / 1_073_741_824:.2f} GB reclaimable:")
-        clean_mod.purge(report, dry_run=not args.yes, log=_p)
+           f"{progress_mod.human_bytes(report.reclaimable)} reclaimable:")
+        removed, freed = clean_mod.purge(report, dry_run=not args.yes, log=_p)
     if report.mismatched:
         _p("")
         _p(f"{len(report.mismatched)} file(s) NOT removed - same name in the library "
@@ -601,7 +602,24 @@ def cmd_clean(args) -> int:
             _p(f"  ... and {len(report.unmatched) - 20} more")
 
     if args.yes:
-        clean_mod.prune_empty_dirs(sources, dry_run=False, log=_p)
+        pruned = clean_mod.prune_empty_dirs(sources, dry_run=False, log=_p)
+
+    # The bottom line, always printed: how much was actually deleted and how
+    # much room that gave back. Reading a wall of per-file lines to work that
+    # out is exactly the sort of arithmetic a person should not have to do.
+    kept = len(report.unmatched) + len(report.mismatched)
+    _p("")
+    _p("  " + "-" * 58)
+    if args.yes:
+        _p(f"   Files deleted:  {removed}")
+        _p(f"   Space freed:    {progress_mod.human_bytes(freed)}")
+        if pruned:
+            _p(f"   Empty folders removed: {pruned}")
+    else:
+        _p(f"   Would delete:   {removed} file(s)")
+        _p(f"   Would free:     {progress_mod.human_bytes(freed)}")
+    _p(f"   Kept:           {kept} file(s) not verified in the library")
+    _p("  " + "-" * 58)
 
     if not report.safe:
         _p("")
