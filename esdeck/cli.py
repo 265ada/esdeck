@@ -11,6 +11,8 @@
     esdeck emulators       show or set which emulator ES-DE uses
     esdeck undo            reverse a previous sort
     esdeck history         list previous sorts
+    esdeck cleanup         remove artwork an older version filed as games
+    esdeck controller      make the game controller player 1
     esdeck tidy            repair an existing library and find duplicates
     esdeck clean           free space: remove drop-folder copies already filed
     esdeck launchers       create .bat launchers for installed PC games
@@ -29,7 +31,8 @@ from pathlib import Path
 
 from . import apply as apply_mod
 from . import bios as bios_mod
-from . import bootstrap, clean as clean_mod, config, cores as cores_mod
+from . import bootstrap, clean as clean_mod, cleanup as cleanup_mod, config
+from . import controller as controller_mod, cores as cores_mod
 from . import dedupe as dedupe_mod
 from . import drives as drives_mod
 from . import emulators as emu_mod
@@ -631,6 +634,136 @@ def cmd_drives(args) -> int:
     return 0
 
 
+# ------------------------------------------------------------------ cleanup
+def cmd_cleanup(args) -> int:
+    """Remove artwork an older esdeck filed as games, and tidy what is left."""
+    cfg = config.load()
+    rom_dir = Path(cfg.rom_dir)
+    if not rom_dir.is_dir():
+        _p(f"No ROM library at {rom_dir}")
+        return 2
+
+    _p(f"Checking {rom_dir} for artwork filed as games...")
+    report = cleanup_mod.find_junk(rom_dir)
+
+    if report.kept:
+        _p("")
+        for path, why in report.kept[:10]:
+            _p(f"  keeping {path.name}: {why}")
+
+    if not report.junk:
+        _p("")
+        _p("No artwork found in the library - nothing to remove.")
+    else:
+        _p("")
+        _p(f"{len(report.junk)} image(s) filed as games, "
+           f"{report.reclaimable / 1_048_576:.0f} MB:")
+        by_system = {}
+        for j in report.junk:
+            by_system[j.system] = by_system.get(j.system, 0) + 1
+        for sysname, count in sorted(by_system.items(), key=lambda kv: -kv[1]):
+            _p(f"    {sysname:<16} {count} file(s)")
+        _p("")
+        removed, freed = cleanup_mod.remove(
+            report, dry_run=not args.yes,
+            log=_p if args.verbose else lambda *a: None)
+        _p(f"  {removed} removed, {freed / 1_048_576:.0f} MB freed"
+           f"{'' if args.yes else ' (dry run)'}")
+
+    if args.yes:
+        pruned = cleanup_mod.prune_empty(cleanup_mod.empty_dirs(rom_dir),
+                                         dry_run=False, log=lambda *a: None)
+        if pruned:
+            _p(f"  {pruned} empty folder(s) removed")
+        gone = cleanup_mod.systems_left_empty(rom_dir)
+        junk_systems = [g for g in gone if g in ("pico8", "tic80")]
+        if junk_systems:
+            _p(f"  {', '.join(junk_systems)} now empty - ES-DE will stop listing them")
+
+    # The rest of the tidying: one entry per game, duplicates, strays.
+    _p("")
+    _p("Library tidy:")
+    fixes = tidy_mod.redundant_entries(rom_dir) + tidy_mod.unhidden_disc_folders(rom_dir)
+    for path, why in fixes:
+        _p(f"  hide   {path.name}  ({why})")
+        if args.yes:
+            apply_mod.set_hidden(path)
+    if not fixes:
+        _p("  each game already shows once")
+
+    dupes = tidy_mod.duplicates(rom_dir)
+    if dupes:
+        _p("")
+        _p(f"{len(dupes)} duplicate title(s) - not removed, your call which to keep:")
+        for d in dupes[:15]:
+            _p(f"  {d.describe()}")
+        if len(dupes) > 15:
+            _p(f"  ... and {len(dupes) - 15} more")
+
+    if not args.yes:
+        _p("")
+        _p("DRY RUN - nothing was changed. Re-run with --yes to apply.")
+    else:
+        _p("")
+        _p("Done. Press F5 in ES-DE to refresh.")
+    return 0
+
+
+# -------------------------------------------------------------- controller
+def cmd_controller(args) -> int:
+    """Show or fix which device RetroArch treats as player 1."""
+    info = controller_mod.diagnose()
+    if info["retroarch"] is None:
+        _p("RetroArch not found - run esdeck.bat first.")
+        return 2
+
+    _p(f"RetroArch: {info['retroarch']}")
+    _p("")
+    _p("Controllers Windows reports through XInput (slot 0 becomes player 1):")
+    if info["xinput_pads"]:
+        for pad in info["xinput_pads"]:
+            _p(f"  {pad.describe()}")
+    else:
+        _p("  none connected right now - plug the controller in first")
+    if info["log_pads"]:
+        _p("")
+        _p("What RetroArch saw last time it ran:")
+        for pad in info["log_pads"]:
+            _p(f"  {pad.describe()}")
+
+    _p("")
+    _p("Current settings:")
+    _p(f"  joypad driver      {info['joypad_driver']}")
+    _p(f"  player 1 device    {info['player1_index']}")
+    _p(f"  player 2 device    {info['player2_index']}")
+    _p(f"  autodetect         {info['autodetect']}")
+
+    if args.diagnose:
+        return 0
+
+    if bootstrap.retroarch_running():
+        _p("")
+        _p("RetroArch is running - it rewrites its config on exit. Quit it first.")
+        return 2
+
+    _p("")
+    _p("Making the controller player 1:")
+    try:
+        changes = controller_mod.apply(info["cfg_path"], controller_mod.DESIRED,
+                                       dry_run=not args.yes)
+    except FileNotFoundError as exc:
+        _p(f"  {exc}")
+        return 2
+    for c in changes:
+        _p(f"  {c}")
+    _p("")
+    _p("The keyboard still works - it has its own bindings and is not a player.")
+    if not args.yes:
+        _p("")
+        _p("DRY RUN. Re-run with --yes to apply.")
+    return 0
+
+
 # --------------------------------------------------------------------- undo
 def cmd_undo(args) -> int:
     """Reverse a previous sort, removing only what that run created."""
@@ -996,6 +1129,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--normalize", metavar="ANSWER",
                    help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)
+
+    p = sub.add_parser("cleanup", help="remove artwork an older esdeck filed as games")
+    p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")
+    p.add_argument("--verbose", action="store_true", help="list every file")
+    p.set_defaults(func=cmd_cleanup)
+
+    p = sub.add_parser("controller", help="make the game controller player 1")
+    p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")
+    p.add_argument("--diagnose", action="store_true", help="report only, change nothing")
+    p.set_defaults(func=cmd_controller)
 
     p = sub.add_parser("undo", help="reverse a previous sort")
     p.add_argument("--run", help="undo a specific run (see esdeck history)")

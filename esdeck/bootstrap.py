@@ -110,6 +110,16 @@ def es_de_running() -> bool:
     return "ES-DE.exe" in out.stdout
 
 
+def retroarch_running() -> bool:
+    """RetroArch overwrites retroarch.cfg on exit, so edits need it stopped."""
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq retroarch.exe", "/NH"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "retroarch.exe" in out.stdout
+
+
 def make_rom_tree(cfg: Config, *, dry_run: bool = True, log=print) -> list[Path]:
     """Create <ROMs>/<system>/ for the enabled systems (all of them by default)."""
     root = Path(cfg.rom_dir)

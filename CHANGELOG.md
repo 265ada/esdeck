@@ -6,6 +6,23 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.8.0] - 2026-08-22
+
+### Added
+- **`fix-library.bat`** - repairs a library sorted by an older version, in one
+  pass. Removes artwork filed as games, makes the controller player 1, then
+  offers to free the Incoming copies.
+- **`esdeck cleanup`** removes artwork that an older esdeck filed as games. It
+  checks **every** system folder, not just pico8 and tic80 - box art turned up
+  under n64 and snes as well. Genuine PICO-8 cartridges really are `.png`, so
+  those are identified by their 160x205 dimensions and kept.
+- **`esdeck controller`** fixes the pad being treated as player 2: it pins
+  RetroArch's player 1 to the first pad and selects the XInput driver, which
+  enumerates Xbox pads first. It also reports every device competing for the
+  slot, since a virtual device from Razer or Corsair software is a common cause.
+  The keyboard is deliberately left working - it is not a "player" in RetroArch
+  and disabling it only removes a fallback.
+
 ## [0.7.1] - 2026-08-22
 
 ### Fixed

@@ -244,6 +244,23 @@ Or record them once so a bare `esdeck sync` covers them all:
 esdeck init --source-dir D:\Incoming --source-dir E:\Downloads\Games
 ```
 
+## Repairing a library sorted by an older version
+
+Run **`fix-library.bat`**. It removes artwork that was filed as games, makes your
+controller player 1, and then offers to free the space the Incoming copies are
+using - asking twice before deleting anything.
+
+The artwork problem is worth spelling out: ES-DE lists `.png` as a valid extension
+for pico8 and tic80, so a collection with box art beside the ROMs produced a PICO-8
+system full of entries like `007 - The World Is Not Enough-image`. `esdeck cleanup`
+checks every system folder for this, not just those two, and keeps genuine PICO-8
+cartridges - which really are `.png` files - by recognising their 160x205 size.
+
+`esdeck controller` handles the pad being seen as player 2. It pins RetroArch's
+player 1 to the first pad and uses the XInput driver, which enumerates Xbox pads
+first, and lists every device competing for the slot - a virtual controller from
+Razer or Corsair software is a common culprit. Your keyboard keeps working.
+
 ## Undoing a sort
 
 Every sort is recorded, so it can be taken back:

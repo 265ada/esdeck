@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esdeck import apply as apply_mod          # noqa: E402
-from esdeck import archives, bios, clean, config, cores, drives  # noqa: E402
+from esdeck import archives, bios, clean, cleanup, config, controller  # noqa: E402
+from esdeck import cores, drives  # noqa: E402
 from esdeck import dedupe, emulators, esde, history  # noqa: E402
 from esdeck import progress  # noqa: E402
 from esdeck import launcher, plan  # noqa: E402
@@ -1400,6 +1401,126 @@ class TestUndo(unittest.TestCase):
         self.assertEqual(back.files, 1)
         self.assertEqual(back.sources, ["D:/Incoming"])
         self.assertEqual(back.created[0].path, str(game))
+
+
+class TestLibraryCleanup(unittest.TestCase):
+    """Repairing a library where artwork was filed as games."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.roms = Path(self.td.name) / "ROMs"
+        for s in ("pico8", "tic80", "n64", "snes"):
+            (self.roms / s).mkdir(parents=True)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    @staticmethod
+    def _png(path: Path, width: int = 640, height: int = 480):
+        import struct
+        import zlib
+
+        def chunk(tag, data):
+            return (struct.pack(">I", len(data)) + tag + data
+                    + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+        ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+                         + chunk(b"IEND", b""))
+
+    def test_artwork_is_found_in_every_system_not_just_pico8(self):
+        self._png(self.roms / "pico8" / "007 - The World Is Not Enough-image.png")
+        self._png(self.roms / "tic80" / "Army Men-image.png")
+        touch(self.roms / "n64" / "Mario 64 (USA).jpg")
+        touch(self.roms / "snes" / "boxart.png")
+        report = cleanup.find_junk(self.roms)
+        self.assertEqual(len(report.junk), 4)
+        self.assertEqual({j.system for j in report.junk},
+                         {"pico8", "tic80", "n64", "snes"})
+
+    def test_real_games_are_never_touched(self):
+        touch(self.roms / "n64" / "Mario 64 (USA).n64")
+        touch(self.roms / "snes" / "Zelda (USA).sfc")
+        self.assertEqual(cleanup.find_junk(self.roms).junk, [])
+
+    def test_a_genuine_pico8_cartridge_is_kept(self):
+        """A real cart is a 160x205 PNG - deleting it would lose a game."""
+        cart = self.roms / "pico8" / "Real Cart.p8.png"
+        self._png(cart, 160, 205)
+        report = cleanup.find_junk(self.roms)
+        self.assertEqual(report.junk, [])
+        self.assertEqual(len(report.kept), 1)
+
+    def test_removal_frees_the_files(self):
+        art = self.roms / "pico8" / "cover-image.png"
+        self._png(art)
+        report = cleanup.find_junk(self.roms)
+        removed, _freed = cleanup.remove(report, dry_run=False, log=lambda *a: None)
+        self.assertEqual(removed, 1)
+        self.assertFalse(art.exists())
+
+    def test_dry_run_removes_nothing(self):
+        art = self.roms / "pico8" / "cover-image.png"
+        self._png(art)
+        cleanup.remove(cleanup.find_junk(self.roms), dry_run=True,
+                       log=lambda *a: None)
+        self.assertTrue(art.exists())
+
+    def test_systems_left_empty_are_reported(self):
+        self._png(self.roms / "tic80" / "art.png")
+        touch(self.roms / "n64" / "Mario.n64")
+        cleanup.remove(cleanup.find_junk(self.roms), dry_run=False,
+                       log=lambda *a: None)
+        empty = cleanup.systems_left_empty(self.roms)
+        self.assertIn("tic80", empty)
+        self.assertNotIn("n64", empty)
+
+
+class TestControllerFix(unittest.TestCase):
+    """The Xbox pad showing up as player 2."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.cfg = Path(self.td.name) / "retroarch.cfg"
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_sets_player_one_to_the_first_pad(self):
+        self.cfg.write_text('input_player1_joypad_index = "3"\n'
+                            'input_joypad_driver = "dinput"\n', encoding="utf-8")
+        controller.apply(self.cfg, controller.DESIRED, dry_run=False)
+        got = controller.read_cfg(self.cfg)
+        self.assertEqual(got["input_player1_joypad_index"], "0")
+        self.assertEqual(got["input_joypad_driver"], "xinput")
+
+    def test_leaves_other_settings_alone(self):
+        self.cfg.write_text('video_fullscreen = "true"\n'
+                            'input_player1_joypad_index = "2"\n', encoding="utf-8")
+        controller.apply(self.cfg, controller.DESIRED, dry_run=False)
+        self.assertEqual(controller.read_cfg(self.cfg)["video_fullscreen"], "true")
+
+    def test_adds_a_missing_setting(self):
+        self.cfg.write_text('video_fullscreen = "true"\n', encoding="utf-8")
+        controller.apply(self.cfg, controller.DESIRED, dry_run=False)
+        self.assertEqual(controller.read_cfg(self.cfg)["input_player1_joypad_index"], "0")
+
+    def test_dry_run_changes_nothing(self):
+        self.cfg.write_text('input_player1_joypad_index = "3"\n', encoding="utf-8")
+        controller.apply(self.cfg, controller.DESIRED, dry_run=True)
+        self.assertEqual(controller.read_cfg(self.cfg)["input_player1_joypad_index"], "3")
+
+    def test_keyboard_is_never_disabled(self):
+        """The keyboard is not a player and must keep working as a fallback."""
+        self.assertNotIn("input_keyboard", " ".join(controller.DESIRED))
+        for key in controller.DESIRED:
+            self.assertNotIn("keyboard", key)
+
+    def test_backup_is_written_once(self):
+        self.cfg.write_text('input_player1_joypad_index = "3"\n', encoding="utf-8")
+        original = self.cfg.read_text(encoding="utf-8")
+        controller.apply(self.cfg, controller.DESIRED, dry_run=False)
+        backup = self.cfg.with_suffix(".cfg.esdeck-backup")
+        self.assertEqual(backup.read_text(encoding="utf-8"), original)
 
 
 class TestEmulatorChoice(unittest.TestCase):
