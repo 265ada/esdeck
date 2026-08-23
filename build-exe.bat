@@ -27,9 +27,13 @@ if not defined CSC (
 set "ICONOPT="
 if exist "assets\ThuggyEmuAutomation.ico" set "ICONOPT=/win32icon:assets\ThuggyEmuAutomation.ico"
 
+rem Embed the wallpaper so the .exe needs nothing beside it.
+set "RESOPT="
+if exist "assets\background.jpg" set "RESOPT=/resource:assets\background.jpg,background.jpg"
+
 echo  Building ThuggyEmuAutomation.exe ...
 "%CSC%" /nologo /target:winexe /optimize+ ^
-    /out:ThuggyEmuAutomation.exe %ICONOPT% ^
+    /out:ThuggyEmuAutomation.exe %ICONOPT% %RESOPT% ^
     /reference:System.dll ^
     /reference:System.Drawing.dll ^
     /reference:System.Windows.Forms.dll ^

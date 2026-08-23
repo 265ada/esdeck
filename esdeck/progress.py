@@ -124,18 +124,35 @@ class Progress:
                 line += "  " + label
         return line
 
+    @property
+    def interactive(self) -> bool:
+        """Whether we are drawing to a terminal that understands \\r.
+
+        When output is captured - piped to a file, or read by the desktop app -
+        carriage returns produce one unreadable smear, so a plain line every
+        few seconds is printed instead.
+        """
+        try:
+            return bool(sys.stdout.isatty())
+        except (AttributeError, ValueError):
+            return False
+
     def draw(self, force: bool = False) -> None:
         if not self.enabled:
             return
         now = time.monotonic()
-        if not force and now - self._last_draw < self.min_interval:
+        interval = self.min_interval if self.interactive else 3.0
+        if not force and now - self._last_draw < interval:
             return
         self._last_draw = now
         text = self.line()
-        pad = " " * max(0, self._last_len - len(text))
-        self._last_len = len(text)
         try:
-            sys.stdout.write("\r" + text + pad)
+            if self.interactive:
+                pad = " " * max(0, self._last_len - len(text))
+                self._last_len = len(text)
+                sys.stdout.write("\r" + text + pad)
+            else:
+                sys.stdout.write(text + "\n")
             sys.stdout.flush()
         except (OSError, ValueError):
             self.enabled = False

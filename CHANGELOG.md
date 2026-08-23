@@ -6,6 +6,38 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.12.0] - 2026-08-23
+
+### Changed
+- **Everything now runs inside the application.** Choosing an action no longer
+  opens a console window; the output streams into a panel in the window itself,
+  line by line, as the work happens. A **Stop** button ends the current run and
+  **Back to menu** returns once it has finished.
+
+  The reason is not just that it looks tidier. A console window is one careless
+  click away from being closed in the middle of a sort, with no warning and no
+  way to tell what had already been filed. The application asks.
+
+- **The application asks before closing while a scan is running.** Closing the
+  window mid-sort now prompts, naming the step in progress, and does nothing
+  unless you confirm. Closing it while idle is unchanged.
+
+- **Progress reports readable lines when its output is being captured.** The
+  status line redraws itself with a carriage return, which a terminal renders
+  as one updating line but a capturing reader renders as an unbroken smear.
+  The bar, percentage, throughput and estimate are all still there - they are
+  simply printed as a fresh line every few seconds instead.
+
+### Added
+- **The Snorlax icon and the poster background are compiled into the .exe.**
+  Nothing sits beside the application and nothing is extracted at run time; the
+  single file carries its own artwork. A picture placed in `assets/` still
+  overrides it, so the background can be changed without a rebuild.
+
+### Fixed
+- The application failed to build against the .NET 2.0 libraries `csc.exe`
+  references by default, which offer only the two-argument `Path.Combine`.
+
 ## [0.11.0] - 2026-08-23
 
 ### Added
