@@ -6,6 +6,81 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.16.0] - 2026-08-23
+
+### Fixed
+- **Artwork named like artwork is now removed, whatever folder it landed in.**
+  A PICO-8 system listing "007 - The World Is Not Enough-image" and forty more
+  like it survived every clean, because the check asked what a file *was* and
+  a scraped PNG looks exactly like a PICO-8 cartridge, which really is a PNG.
+  It now also asks what a file is *called*: anything ending in `-image`,
+  `-marquee`, `-titlescreen`, `-video`, `-manual` and the rest of ES-DE's
+  scraper names is artwork, whatever extension it wears, and is never spared as
+  a cartridge. A genuine cartridge is still kept on the strength of its
+  contents.
+
+- **The system itself now goes away.** Deleting the files was never enough.
+  ES-DE lists a system because its folder exists, and describes its contents
+  from a gamelist it keeps separately - so an emptied system stayed on screen,
+  still full of entries, with every file behind them gone. The emptied folder,
+  its stale gamelist, and any scraped artwork left stranded are now removed
+  together.
+
+  Guarded, though: if *no* system has any games, that is a library which is
+  missing rather than empty - an unplugged drive, a path typed wrong - and
+  nothing is touched. Otherwise a wrong path would delete every gamelist and
+  all the scraped artwork for a collection that is perfectly fine.
+
+- **"Press F5" was the wrong advice.** F5 reloads one system; it cannot remove
+  one, because ES-DE builds that list once at startup. Being told to press F5
+  and then watching a dead system sit there is worse than being told nothing.
+  When a system has been removed, esdeck now says to close ES-DE and start it
+  again.
+
+- **The window stayed responsive but the display did not.** Every line of
+  output was posted to the window as it arrived, and Windows only delivers
+  timer ticks to a message queue that has run dry - so on a busy sort the
+  elapsed clock froze at one second and stayed there. Output is now collected
+  and flushed a few times a second, with a bound on how much is drawn at once.
+  Under a flood that used to leave the window minutes behind, the clock now
+  ticks every second. A job that took five seconds takes one.
+
+- Sizes throughout read in whatever unit suits them. A few hundred kilobytes
+  of artwork used to report as `0 MB freed`.
+
+- `build-exe.bat --no-pause` no longer waits for a keypress when the build
+  fails - the one case where it could not report why it was stuck.
+
+### Added
+- **An activity strip on every job.** Along the bottom of the output: how long
+  this has been running, and what the disk is actually doing - read and write
+  throughput, sampled once a second from Windows' own I/O counters for the step
+  that is running. Not scraped from the text above, so it keeps telling the
+  truth through the long silences: hashing one 4 GB disc image, or waiting on
+  7-Zip to work through a 47-part archive. When nothing is moving it says so,
+  in as many words, rather than leaving you to guess.
+
+  Above it, a progress bar that follows the real percentage when there is one
+  to follow and sweeps when there is not.
+
+- **Progress on the operations that had none.** Verifying the drop folder reads
+  every byte on disk and is the slowest thing esdeck does; it now reports a
+  bar, a rate and an estimate like everything else. Checking the library for
+  artwork reports what it is walking through.
+
+- **A heartbeat.** Steps that go quiet - one enormous file, an archive being
+  listed - used to freeze the display, and a frozen display honestly reads as a
+  hang. The status line now redraws on a timer of its own, with a spinner, so
+  it always shows life whether or not anything has finished.
+
+### Changed
+- **Estimates follow the pace of the work.** They were extrapolating from the
+  average speed since the job began, so a run that started on a hundred tiny
+  ROMs and moved on to a 4 GB disc image gave a figure describing neither, and
+  went on being wrong in the same direction for minutes. Time remaining is now
+  bytes left divided by current throughput. In a case where the old estimate
+  said twenty seconds, the new one says one, correctly.
+
 ## [0.15.0] - 2026-08-23
 
 ### Fixed

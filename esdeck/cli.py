@@ -140,7 +140,7 @@ def _describe(item) -> None:
     sysname = item.system or ("UNRECOGNIZED" if item.unrecognized else "UNKNOWN")
     extra = f", {item.media_count} image(s) ignored" if item.media_count else ""
     _p(f"{conf} {item.name}  ->  {sysname}  ({len(item.game_files)} file(s), "
-       f"{item.total_size / 1_048_576:.0f} MB{extra})")
+       f"{progress_mod.human_bytes(item.total_size)}{extra})")
     if item.candidates:
         _p(f"       also plausible: {', '.join(item.candidates)}")
     for rel in item.opaque_archives:
@@ -302,7 +302,7 @@ def cmd_sync(args) -> int:
     _p("[1/4] Reading the drop folder")
     items = []
     seen = [0]
-    scan_bar = progress_mod.Progress(enabled=True)
+    scan_bar = progress_mod.Progress(enabled=True).start()
 
     def scanning(name):
         seen[0] += 1
@@ -357,7 +357,7 @@ def cmd_sync(args) -> int:
                               sources=[str(x) for x in sources])
     n_items, n_bytes = progress_mod.plan_totals(bundle["plans"])
     bar = progress_mod.Progress(total_items=n_items, total_bytes=n_bytes,
-                                enabled=args.yes and n_items > 1)
+                                enabled=args.yes and n_items > 1).start()
 
     def tick(kind, nbytes, label):
         bar.advance(items=1, nbytes=nbytes, label=label)
@@ -456,7 +456,7 @@ def cmd_sync(args) -> int:
                                   quick=args.quick_verify)
         if report.safe:
             removed, freed = clean_mod.purge(report, dry_run=not args.yes, log=_p)
-            _p(f"  {removed} file(s), {freed / 1_073_741_824:.2f} GB"
+            _p(f"  {removed} file(s), {progress_mod.human_bytes(freed)}"
                f"{'' if args.yes else ' (dry run)'}")
             if args.yes:
                 clean_mod.prune_empty_dirs(sources, dry_run=False, log=_p)
@@ -578,7 +578,12 @@ def cmd_clean(args) -> int:
     roots = [cfg.rom_dir, cfg.install_dir]
     _p("Verifying drop-folder files against the library"
        + (" (size only)" if args.quick else " (full content hash)") + " ...")
-    report = clean_mod.survey(sources, roots, quick=args.quick)
+    # Reading every byte of a drop folder takes as long as the sort did, so it
+    # gets the same treatment: a bar, a rate, an estimate, and a disk readout.
+    items, nbytes = clean_mod.measure(sources)
+    bar = progress_mod.Progress(total_items=items, total_bytes=nbytes)
+    with bar:
+        report = clean_mod.survey(sources, roots, quick=args.quick, progress=bar)
 
     removed = freed = pruned = 0
     if report.safe:
@@ -814,7 +819,9 @@ def cmd_cleanup(args) -> int:
         return 2
 
     _p(f"Checking {rom_dir} for artwork filed as games...")
-    report = cleanup_mod.find_junk(rom_dir)
+    bar = progress_mod.Progress()
+    with bar:
+        report = cleanup_mod.find_junk(rom_dir, progress=bar)
 
     if report.kept:
         _p("")
@@ -827,7 +834,7 @@ def cmd_cleanup(args) -> int:
     else:
         _p("")
         _p(f"{len(report.junk)} image(s) filed as games, "
-           f"{report.reclaimable / 1_048_576:.0f} MB:")
+           f"{progress_mod.human_bytes(report.reclaimable)}:")
         by_system = {}
         for j in report.junk:
             by_system[j.system] = by_system.get(j.system, 0) + 1
@@ -837,7 +844,7 @@ def cmd_cleanup(args) -> int:
         removed, freed = cleanup_mod.remove(
             report, dry_run=not args.yes,
             log=_p if args.verbose else lambda *a: None)
-        _p(f"  {removed} removed, {freed / 1_048_576:.0f} MB freed"
+        _p(f"  {removed} removed, {progress_mod.human_bytes(freed)} freed"
            f"{'' if args.yes else ' (dry run)'}")
 
     if args.yes:
@@ -845,10 +852,25 @@ def cmd_cleanup(args) -> int:
                                          dry_run=False, log=lambda *a: None)
         if pruned:
             _p(f"  {pruned} empty folder(s) removed")
-        gone = cleanup_mod.systems_left_empty(rom_dir)
-        junk_systems = [g for g in gone if g in ("pico8", "tic80")]
-        if junk_systems:
-            _p(f"  {', '.join(junk_systems)} now empty - ES-DE will stop listing them")
+
+    # Deleting the files is only half the job. ES-DE keeps a gamelist per
+    # system, and goes on listing what the gamelist claims - which is why a
+    # PICO-8 full of Nintendo 64 titles survives having its files removed.
+    es_dir = Path(cfg.es_config_dir) if cfg.es_config_dir else None
+    dead_lists = cleanup_mod.stale_gamelists(es_dir, rom_dir) if es_dir else []
+    dead_media = cleanup_mod.stale_media(es_dir, rom_dir,
+                                         cfg.media_dir) if es_dir else []
+    if dead_lists or dead_media:
+        _p("")
+        _p("ES-DE still has entries for systems that hold no games:")
+        for d in dead_lists:
+            freed = cleanup_mod.remove_tree(d, dry_run=not args.yes)
+            _p(f"  {'removed' if args.yes else 'would remove'} the {d.name} "
+               f"gamelist ({progress_mod.human_bytes(freed)})")
+        for d in dead_media:
+            freed = cleanup_mod.remove_tree(d, dry_run=not args.yes)
+            _p(f"  {'removed' if args.yes else 'would remove'} scraped "
+               f"{d.name} artwork ({progress_mod.human_bytes(freed)})")
 
     # The rest of the tidying: one entry per game, duplicates, strays.
     _p("")
@@ -875,7 +897,14 @@ def cmd_cleanup(args) -> int:
         _p("DRY RUN - nothing was changed. Re-run with --yes to apply.")
     else:
         _p("")
-        _p("Done. Press F5 in ES-DE to refresh.")
+        # F5 reloads one gamelist. It does not remove a system - ES-DE builds
+        # that list once, at startup - so telling someone to press F5 and then
+        # watch a dead system stay put is worse than saying nothing.
+        if dead_lists or dead_media or report.junk:
+            _p("Done. Close ES-DE completely and start it again - F5 only "
+               "reloads a system, it cannot remove one.")
+        else:
+            _p("Done. Press F5 in ES-DE to refresh.")
     return 0
 
 
@@ -955,7 +984,7 @@ def cmd_undo(args) -> int:
     if run.sources:
         _p(f"  from: {', '.join(run.sources)}")
     _p(f"  it created {run.files} file(s), "
-       f"{run.total_bytes / 1_048_576:.0f} MB")
+       f"{progress_mod.human_bytes(run.total_bytes)}")
     _p("")
     res = history_mod.undo(run, dry_run=not args.yes,
                            log=_p if args.verbose else lambda *a: None)

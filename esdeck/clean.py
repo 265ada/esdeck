@@ -81,7 +81,25 @@ def _library_index(roots) -> dict:
     return index
 
 
-def survey(source_dirs, library_roots, *, quick: bool = False) -> Report:
+def measure(source_dirs) -> tuple:
+    """(files, bytes) in the drop folder, so verifying can show a real bar."""
+    items = nbytes = 0
+    for src_root in source_dirs:
+        src_root = Path(src_root)
+        if not src_root.is_dir():
+            continue
+        for dirpath, _dirnames, filenames in os.walk(src_root):
+            for fn in filenames:
+                items += 1
+                try:
+                    nbytes += (Path(dirpath) / fn).stat().st_size
+                except OSError:
+                    pass
+    return items, nbytes
+
+
+def survey(source_dirs, library_roots, *, quick: bool = False,
+           progress=None) -> Report:
     """Work out which drop-folder files are already safely in the library."""
     index = _library_index(library_roots)
     report = Report()
@@ -97,6 +115,8 @@ def survey(source_dirs, library_roots, *, quick: bool = False) -> Report:
                     size = src.stat().st_size
                 except OSError:
                     continue
+                if progress is not None:
+                    progress.advance(items=1, nbytes=size, label=fn)
                 matches = index.get(fn.lower(), [])
                 if not matches:
                     report.unmatched.append(

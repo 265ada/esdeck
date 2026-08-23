@@ -46,7 +46,9 @@ echo  Building ThuggyEmuAutomation.exe ...
 if errorlevel 1 (
     echo  [X] Build failed.
     echo.
-    pause >nul
+    rem --no-pause has to hold here too, or an automated build hangs
+    rem on the one path where it cannot report why.
+    if not "%~1"=="--no-pause" pause >nul
     exit /b 1
 )
 echo  [ok] ThuggyEmuAutomation.exe
