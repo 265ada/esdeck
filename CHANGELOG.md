@@ -6,6 +6,15 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.10.1] - 2026-08-23
+
+### Changed
+- **Release pages now carry the full details themselves** rather than linking to
+  the changelog and making the reader go and find it. `esdeck release-notes`
+  prints a version's entry so a release is published with its own content:
+  `gh release create vX --notes "$(esdeck release-notes X)"`. The v0.9.1 and
+  v0.10.0 pages have been rewritten in place.
+
 ## [0.10.0] - 2026-08-23
 
 ### Added

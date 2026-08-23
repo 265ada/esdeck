@@ -637,6 +637,32 @@ def cmd_drives(args) -> int:
     return 0
 
 
+# ----------------------------------------------------------- release notes
+def cmd_release_notes(args) -> int:
+    """Print one version's changelog entry, for use as GitHub release notes.
+
+    Release pages should carry the detail themselves - a link to CHANGELOG.md
+    makes the reader go and find it. This prints exactly what belongs on the
+    page:  gh release create vX --notes "$(esdeck release-notes X)"
+    """
+    source = Path(args.file) if args.file else Path("CHANGELOG.md")
+    if not source.is_file():
+        _p(f"No changelog at {source}")
+        return 2
+    text = source.read_text(encoding="utf-8")
+    sections = {v: (d, b) for v, d, b in update_mod.split_sections(text)}
+    version = args.version or __version__
+    if version not in sections:
+        _p(f"No entry for {version}. Found: {', '.join(list(sections)[:8])}")
+        return 2
+    date, body = sections[version]
+    if date:
+        _p(f"Released {date}")
+        _p("")
+    _p(body)
+    return 0
+
+
 # --------------------------------------------------------------------- icon
 def cmd_icon(args) -> int:
     """Crop a picture to a circle and write a Windows .ico, then a shortcut."""
@@ -1245,6 +1271,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--normalize", metavar="ANSWER",
                    help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)
+
+    p = sub.add_parser("release-notes",
+                       help="print a version's changelog entry for a release page")
+    p.add_argument("version", nargs="?", help="defaults to the installed version")
+    p.add_argument("--file", help="changelog to read (default CHANGELOG.md)")
+    p.set_defaults(func=cmd_release_notes)
 
     p = sub.add_parser("icon", help="make a circular .ico from a picture")
     p.add_argument("source", help="a PNG to crop")
