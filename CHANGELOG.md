@@ -6,6 +6,22 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.15.0] - 2026-08-23
+
+### Fixed
+- **Updates could appear to do nothing when a copy of the source sat beside
+  the .exe.** Python puts the working directory first on its import path, so a
+  downloaded repo in the same folder as the application shadowed the installed
+  package entirely. The version on screen was whatever was in that folder, and
+  installing an update changed nothing you could see. The application now runs
+  Python with the working directory kept off the import path, so it always uses
+  the copy that updates actually replace.
+
+- **The installed package reported version 0.11.0 no matter what it was.** The
+  packaging metadata carried its own hand-written copy of the version, which
+  stopped being bumped four releases ago. It is now read from the source, so
+  there is one place to change it and no way for the two to drift apart.
+
 ## [0.14.0] - 2026-08-23
 
 ### Fixed

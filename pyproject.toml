@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "esdeck"
-version = "0.11.0"
+# Read from esdeck/__init__.py, so there is one place to bump and
+# no way for the installed metadata to drift behind the code.
+dynamic = ["version"]
 description = "Set up ES-DE (EmulationStation) on any machine and install provided games without the busywork"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,3 +25,6 @@ esdeck = "esdeck.cli:main"
 
 [tool.setuptools]
 packages = ["esdeck"]
+
+[tool.setuptools.dynamic]
+version = { attr = "esdeck.__version__" }

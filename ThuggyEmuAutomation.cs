@@ -336,6 +336,11 @@ namespace ThuggyEmuAutomation
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
                 psi.WorkingDirectory = appDir;
+                // Without this, Python puts the working directory first on the
+                // import path. A copy of the source sitting beside the .exe -
+                // a downloaded repo, say - would then shadow the installed
+                // package, so updates appeared to do nothing at all.
+                psi.EnvironmentVariables["PYTHONSAFEPATH"] = "1";
                 Process p = Process.Start(psi);
                 string text = p.StandardOutput.ReadToEnd();
                 p.WaitForExit(20000);
@@ -438,6 +443,11 @@ namespace ThuggyEmuAutomation
                 psi.StandardOutputEncoding = Encoding.UTF8;
                 psi.StandardErrorEncoding = Encoding.UTF8;
                 psi.WorkingDirectory = appDir;
+                // Without this, Python puts the working directory first on the
+                // import path. A copy of the source sitting beside the .exe -
+                // a downloaded repo, say - would then shadow the installed
+                // package, so updates appeared to do nothing at all.
+                psi.EnvironmentVariables["PYTHONSAFEPATH"] = "1";
 
                 current = new Process();
                 current.StartInfo = psi;
