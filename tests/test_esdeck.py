@@ -17,7 +17,7 @@ from esdeck import dedupe, emulators, esde, history  # noqa: E402
 from esdeck import progress  # noqa: E402
 from esdeck import launcher, plan  # noqa: E402
 from esdeck import readme_parse  # noqa: E402
-from esdeck import patch, scan, tidy  # noqa: E402
+from esdeck import patch, scan, tidy, update  # noqa: E402
 from esdeck import sniff  # noqa: E402
 from esdeck import systems  # noqa: E402
 
@@ -1612,6 +1612,43 @@ class TestConfigValidity(unittest.TestCase):
             p.write_text("[1, 2, 3]", encoding="utf-8")
             with self.assertRaises(config.BadConfig):
                 config.load(p, strict=True)
+
+
+class TestUpdater(unittest.TestCase):
+    """Version comparison, so a launcher knows when to reinstall."""
+
+    def test_numeric_comparison_not_alphabetical(self):
+        """0.10.0 is newer than 0.9.0, which string comparison gets wrong."""
+        newer = update.Available("0.10.0", "0.9.0")
+        self.assertTrue(newer.newer)
+
+    def test_same_version_is_not_newer(self):
+        self.assertFalse(update.Available("0.8.0", "0.8.0").newer)
+
+    def test_older_remote_is_not_newer(self):
+        self.assertFalse(update.Available("0.7.1", "0.8.0").newer)
+
+    def test_patch_release_counts(self):
+        self.assertTrue(update.Available("0.8.1", "0.8.0").newer)
+
+    def test_odd_version_strings_do_not_crash(self):
+        for v in ("", "abc", "1", "1.2.3.4.5"):
+            update.Available(v, "0.8.0").newer          # must not raise
+
+    def test_version_is_parsed_from_the_source_file(self):
+        text = "x = 1\n__version__ = \"1.2.3\"\ny = 2"
+        self.assertEqual(update._VERSION_RE.search(text).group(1), "1.2.3")
+
+    def test_bats_are_only_copied_when_different(self):
+        with tempfile.TemporaryDirectory() as td:
+            src, dst = Path(td) / "src", Path(td) / "dst"
+            src.mkdir(); dst.mkdir()
+            (src / "a.bat").write_bytes(b"same")
+            (dst / "a.bat").write_bytes(b"same")
+            (src / "b.bat").write_bytes(b"new")
+            copied = update._refresh_bats(src, dst, log=lambda *a: None)
+            self.assertEqual(copied, 1)
+            self.assertEqual((dst / "b.bat").read_bytes(), b"new")
 
 
 if __name__ == "__main__":

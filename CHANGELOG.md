@@ -9,6 +9,18 @@ correct and more complete.
 ## [0.8.0] - 2026-08-22
 
 ### Added
+- **`esdeck-launcher.bat` - the only file you need to keep.** It checks GitHub
+  on every launch, updates itself, the other .bat files and the package when
+  anything is newer, then offers a menu: set up, sort, fix, undo, doctor, free
+  space. No more re-downloading a ZIP to get a fix.
+
+  This closes a real trap: the .bat files are only launchers, so copying a
+  fresh one out of a download does not update the code it runs. The launcher
+  updates the package too, which is the part that matters.
+
+- **`esdeck update`** checks and installs on its own, and only fetches the full
+  download when the version actually differs - the check is a single small file.
+  Versions compare numerically, so 0.10.0 correctly beats 0.9.0.
 - **`fix-library.bat`** - repairs a library sorted by an older version, in one
   pass. Removes artwork filed as games, makes the controller player 1, then
   offers to free the Incoming copies.

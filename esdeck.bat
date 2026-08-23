@@ -178,10 +178,11 @@ rem Clear up a stray folder left by an older version answering "G" literally.
 set "DESKTOP=%USERPROFILE%\Desktop"
 if not exist "%DESKTOP%" set "DESKTOP=%USERPROFILE%\OneDrive\Desktop"
 if exist "%DESKTOP%" (
-    if exist "sort-games.bat" (
-        copy /y "sort-games.bat" "%DESKTOP%\sort-games.bat" >nul
-        echo  [ok] "sort-games" placed on your Desktop
+    for %%b in (esdeck-launcher.bat sort-games.bat fix-library.bat) do (
+        if exist "%%b" copy /y "%%b" "%DESKTOP%\%%b" >nul
     )
+    echo  [ok] esdeck shortcuts placed on your Desktop
+    echo       Use "esdeck-launcher" from now on - it keeps itself updated.
 )
 
 echo.

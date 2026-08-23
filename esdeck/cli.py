@@ -11,6 +11,7 @@
     esdeck emulators       show or set which emulator ES-DE uses
     esdeck undo            reverse a previous sort
     esdeck history         list previous sorts
+    esdeck update          check GitHub and install a newer esdeck
     esdeck cleanup         remove artwork an older version filed as games
     esdeck controller      make the game controller player 1
     esdeck tidy            repair an existing library and find duplicates
@@ -41,6 +42,7 @@ from . import launcher, plan as plan_mod
 from . import progress as progress_mod
 from . import scan as scan_mod
 from . import tidy as tidy_mod
+from . import update as update_mod
 from . import __version__
 from .systems import BY_KEY
 
@@ -634,6 +636,39 @@ def cmd_drives(args) -> int:
     return 0
 
 
+# ------------------------------------------------------------------- update
+def cmd_update(args) -> int:
+    """Check GitHub for a newer esdeck and install it."""
+    if args.check:
+        found = update_mod.check(force=True)
+        if found is None:
+            _p("could not reach GitHub")
+            return 2
+        _p(f"installed {found.current}, available {found.version}")
+        return 0 if found.newer else 1
+
+    _p(f"esdeck {__version__} - checking for updates...")
+    found = update_mod.check(force=True)
+    if found is None:
+        _p("  could not reach GitHub - carrying on with what is installed.")
+        return 0
+    if not found.newer:
+        _p(f"  already up to date ({found.current}).")
+        return 0
+
+    _p(f"  {found.version} is available (you have {found.current}).")
+    if not args.yes:
+        _p("  Re-run with --yes to install it.")
+        return 0
+
+    bat_dir = Path(args.bat_dir) if args.bat_dir else None
+    if update_mod.download_and_install(bat_dir=bat_dir, log=_p):
+        _p(f"  updated to {found.version}.")
+        return 0
+    _p("  update failed - the installed version still works.")
+    return 1
+
+
 # ------------------------------------------------------------------ cleanup
 def cmd_cleanup(args) -> int:
     """Remove artwork an older esdeck filed as games, and tidy what is left."""
@@ -1129,6 +1164,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--normalize", metavar="ANSWER",
                    help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)
+
+    p = sub.add_parser("update", help="check GitHub for a newer esdeck and install it")
+    p.add_argument("--yes", action="store_true", help="install it, not just report")
+    p.add_argument("--check", action="store_true",
+                   help="exit 0 if an update exists, 1 if not, 2 if unreachable")
+    p.add_argument("--bat-dir", help="also refresh the .bat files in this folder")
+    p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("cleanup", help="remove artwork an older esdeck filed as games")
     p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")

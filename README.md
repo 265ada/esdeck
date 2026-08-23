@@ -15,6 +15,22 @@ It does two jobs:
 Zero dependencies — Python 3.10+ standard library only, so getting it onto machine number four is
 `git clone` and nothing else.
 
+## Keeping it current
+
+Keep **`esdeck-launcher.bat`** on your Desktop and use it for everything. It checks
+GitHub each time it opens, updates the package and the other .bat files if anything
+is newer, and then shows a menu. You never re-download by hand.
+
+This matters more than it sounds: the .bat files are only launchers, and the code
+they run is the installed package - so copying a fresh .bat out of a download does
+*not* update esdeck. The launcher updates the package, which is the part that counts.
+
+```bash
+esdeck update --check
+```
+
+reports whether an update exists without installing anything.
+
 ## Install
 
 Clone the repo and double-click **`esdeck.bat`**. It asks where your games should
