@@ -6,6 +6,28 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.11.0] - 2026-08-23
+
+### Added
+- **ThuggyEmuAutomation.exe** - a real Windows application, not a batch file.
+  Buttons for setting up, sorting, fixing the library, undoing, checking for
+  problems, changing the icon and updating; each opens its own console so the
+  progress bar and estimate stay visible. It shows the installed version and
+  your games folder on screen.
+
+  Built with `csc.exe`, the C# compiler that ships with Windows, so there is no
+  toolchain to install, nothing bundled, and the result is 15 KB. `build-exe.bat`
+  rebuilds it.
+
+- The app icon is compiled into the .exe, so **`set-icon.bat` now rebuilds the
+  .exe as well** - otherwise the shortcut would change and the application
+  itself would keep the old icon.
+
+### Note
+- A batch file cannot be run from inside a ZIP - Windows offers to extract it
+  first, which is what the "this application may depend on other compressed
+  files" prompt means. Extract the download, then run the .exe.
+
 ## [0.10.1] - 2026-08-23
 
 ### Changed

@@ -55,6 +55,15 @@ if not exist "%DESKTOP%" set "DESKTOP=%USERPROFILE%\OneDrive\Desktop"
 %PY% -m esdeck icon "assets\ThuggyEmuAutomation.png" ^
     --dest "%DESKTOP%\ThuggyEmuAutomation.ico" ^
     --shortcut "%DESKTOP%\ThuggyEmuAutomation.bat"
+rem The .exe has its icon compiled in, so it has to be rebuilt to pick up a
+rem new one - otherwise the shortcut changes and the app itself does not.
+if exist "build-exe.bat" (
+    echo.
+    echo   Rebuilding ThuggyEmuAutomation.exe with the new icon...
+    copy /y "%DESKTOP%\ThuggyEmuAutomation.ico" "assets\ThuggyEmuAutomation.ico" >nul 2>&1
+    call build-exe.bat --no-pause
+)
+
 echo.
 echo   If the Desktop icon still looks old, press F5 on the Desktop -
 echo   Windows caches shortcut icons.
