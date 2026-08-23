@@ -6,6 +6,32 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.14.0] - 2026-08-23
+
+### Fixed
+- **The Snorlax finally appears in the title bar.** The icon was there in the
+  file and in Explorer, but every entry inside the .ico was stored as a PNG,
+  and `System.Drawing.Icon` - the thing that puts an icon in a window's title
+  bar and on the taskbar - cannot read PNG entries at all. It threw, the error
+  was swallowed, and Windows drew its default icon instead.
+
+  The small sizes are now written in the classic DIB form, which it does
+  understand. 256px stays PNG, where the format requires it. If an .ico is ever
+  unreadable again the application builds one from the artwork instead, so the
+  icon cannot silently go missing.
+
+- **"Games folder" shows the folder, not the drive.** It was reporting `D:\`
+  where the library is actually `D:\ROMs`. That drive is the right answer to a
+  setup question about where to put things, and the wrong answer to "where are
+  my games".
+
+### Changed
+- **Updating asks before it installs.** Choosing *Check for updates* now looks
+  first and prints what changed in every version you are behind, oldest first,
+  and only then asks whether to install. It used to fetch the changelog and
+  install in one go, which meant the summary scrolled past as a record of
+  something already done rather than a thing to decide about.
+
 ## [0.13.0] - 2026-08-23
 
 ### Added

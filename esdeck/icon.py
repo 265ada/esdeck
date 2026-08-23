@@ -186,6 +186,38 @@ def write_png(path: Path, side: int, rgba: bytearray) -> None:
     Path(path).write_bytes(body)
 
 
+def _dib_bytes(side: int, rgba: bytearray) -> bytes:
+    """One icon entry in the classic BMP/DIB form.
+
+    An .ico may hold either a PNG or a DIB per size. PNG entries are smaller
+    and Explorer reads them happily, but System.Drawing.Icon - which is what
+    puts the icon in a window's title bar - only understands DIB, and simply
+    throws on the others. So the small sizes are written this way.
+
+    A DIB icon is a BITMAPINFOHEADER whose height is doubled to cover the
+    colour bitmap and the 1-bit mask beneath it, with rows stored bottom-up.
+    """
+    xor = bytearray()
+    for y in range(side - 1, -1, -1):
+        row = rgba[y * side * 4:(y + 1) * side * 4]
+        for x in range(side):
+            r, g, b, a = row[x * 4:x * 4 + 4]
+            xor += bytes((b, g, r, a))                 # BGRA on disk
+
+    stride = ((side + 31) // 32) * 4                   # mask rows pad to 4 bytes
+    mask = bytearray()
+    for y in range(side - 1, -1, -1):
+        bits = bytearray(stride)
+        for x in range(side):
+            if rgba[(y * side + x) * 4 + 3] == 0:      # transparent
+                bits[x >> 3] |= 0x80 >> (x & 7)
+        mask += bits
+
+    header = struct.pack("<IiiHHIIiiII", 40, side, side * 2, 1, 32, 0,
+                         len(xor) + len(mask), 0, 0, 0, 0)
+    return header + bytes(xor) + bytes(mask)
+
+
 def _png_bytes(side: int, rgba: bytearray) -> bytes:
     """The same PNG, built in memory - no temp file to leak or lock."""
     def chunk(tag: bytes, payload: bytes) -> bytes:
@@ -206,7 +238,11 @@ def write_ico(path: Path, side: int, rgba: bytearray,
               sizes=ICO_SIZES) -> Path:
     """A multi-size .ico. Entries are PNG payloads, which Windows accepts."""
     usable = [s for s in sizes if s <= side] or [side]
-    images = [(s, _png_bytes(s, resize(side, rgba, s))) for s in usable]
+    # DIB for everything a window actually displays; PNG only at 256, where the
+    # format requires it and nothing needs to parse it with System.Drawing.
+    images = [(s, _png_bytes(s, resize(side, rgba, s)) if s >= 256
+                  else _dib_bytes(s, resize(side, rgba, s)))
+              for s in usable]
 
     header = struct.pack("<HHH", 0, 1, len(images))
     entries, blobs = b"", b""

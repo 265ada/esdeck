@@ -638,6 +638,13 @@ def cmd_drives(args) -> int:
         cfg = config.load()
         _p(str(Path(cfg.rom_dir).parent) if cfg.rom_dir else "")
         return 0
+    if args.rom_dir:
+        # --current gives the drive, which is what the setup questions are
+        # about. This gives the folder games are actually in, which is what
+        # someone means when they ask where their games are.
+        cfg = config.load()
+        _p(str(cfg.rom_dir) if cfg.rom_dir else "")
+        return 0
     if args.normalize is not None:
         _p(drives_mod.normalize_target(args.normalize))
         return 0
@@ -783,7 +790,10 @@ def cmd_update(args) -> int:
     if not args.yes:
         _p("")
         _p("  Re-run with --yes to install it.")
-        return 0
+        # 10 means "there is an update, and it was not installed". The desktop
+        # app runs this first to show the changelog, then asks; a plain 0 here
+        # would be indistinguishable from already being current.
+        return 10
 
     _p("")
     bat_dir = Path(args.bat_dir) if args.bat_dir else None
@@ -1286,6 +1296,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="print only the suggested folder, for scripts")
     p.add_argument("--current", action="store_true",
                    help="print the games folder this PC is already using")
+    p.add_argument("--rom-dir", action="store_true",
+                   help="print the folder the games library lives in")
     p.add_argument("--normalize", metavar="ANSWER",
                    help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)

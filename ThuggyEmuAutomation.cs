@@ -33,6 +33,10 @@ namespace ThuggyEmuAutomation
         private string appDir;
         private bool hasBackground;
 
+        private delegate void DoneHandler(int lastCode);
+        private DoneHandler onDone;              // runs on the UI thread after a job
+        private int lastCode;
+
         private Process current;                 // the step running right now
         private Thread worker;
         private volatile bool cancelled;
@@ -235,7 +239,18 @@ namespace ThuggyEmuAutomation
             {
                 string path = Path.Combine(Path.Combine(appDir, "assets"),
                                            "ThuggyEmuAutomation.ico");
-                if (File.Exists(path)) Icon = new Icon(path);
+                if (File.Exists(path)) { Icon = new Icon(path); return; }
+            }
+            catch { }
+            // Last resort: build an icon from the artwork itself, which works
+            // whatever shape the .ico happens to be in.
+            try
+            {
+                string png = Path.Combine(Path.Combine(appDir, "assets"),
+                                          "ThuggyEmuAutomation.png");
+                if (File.Exists(png))
+                    using (Bitmap bmp = new Bitmap(png))
+                        Icon = Icon.FromHandle(bmp.GetHicon());
             }
             catch { }
         }
@@ -372,6 +387,11 @@ namespace ThuggyEmuAutomation
         /// <summary>Run esdeck commands one after another, output shown here.</summary>
         private void Run(string what, string[] steps)
         {
+            Run(what, steps, null);
+        }
+
+        private void Run(string what, string[] steps, DoneHandler done)
+        {
             if (busy) return;
             string py = Python();
             if (py == null) { NoPython(); return; }
@@ -379,6 +399,8 @@ namespace ThuggyEmuAutomation
             ShowOutput(what);
             busy = true;
             cancelled = false;
+            onDone = done;
+            lastCode = 0;
 
             worker = new Thread(delegate ()
             {
@@ -387,6 +409,7 @@ namespace ThuggyEmuAutomation
                     if (cancelled) break;
                     Append("> esdeck " + step);
                     int code = RunStep(py, step);
+                    lastCode = code;
                     if (cancelled)
                     {
                         Append("");
@@ -453,6 +476,10 @@ namespace ThuggyEmuAutomation
             backButton.Enabled = true;
             runningLabel.Text = cancelled ? "Stopped" : "Finished";
             RefreshStatus();
+
+            DoneHandler handler = onDone;
+            onDone = null;
+            if (handler != null && !cancelled) handler(lastCode);
         }
 
         private void OnCancel(object sender, EventArgs e)
@@ -509,7 +536,7 @@ namespace ThuggyEmuAutomation
             versionLabel.Text = version == null
                 ? "esdeck is not installed yet - start with \"Set up this PC\""
                 : version;
-            string folder = RunAndRead("drives --current");
+            string folder = RunAndRead("drives --rom-dir");
             statusLabel.Text = string.IsNullOrEmpty(folder)
                 ? "No games folder configured yet."
                 : "Games folder:  " + folder;
