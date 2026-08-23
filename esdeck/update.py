@@ -31,7 +31,12 @@ from .config import CONFIG_DIR
 
 REPO = "265ada/esdeck"
 BRANCH = "master"
-VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/esdeck/__init__.py"
+#: The API returns the current file; raw.githubusercontent is CDN-cached for
+#: several minutes and reported a stale version straight after a push.
+VERSION_URL = (f"https://api.github.com/repos/{REPO}/contents/esdeck/__init__.py"
+               f"?ref={BRANCH}")
+VERSION_URL_FALLBACK = (f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
+                        f"/esdeck/__init__.py")
 ZIP_URL = f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}"
 USER_AGENT = f"esdeck/{__version__} (+https://github.com/{REPO})"
 TIMEOUT = 60
@@ -61,20 +66,26 @@ def _as_tuple(v: str) -> tuple:
     return tuple(parts + [0] * (4 - len(parts)))
 
 
-def _get(url: str, timeout: int = TIMEOUT) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _get(url: str, timeout: int = TIMEOUT, raw: bool = False) -> bytes:
+    headers = {"User-Agent": USER_AGENT, "Cache-Control": "no-cache"}
+    if raw:
+        headers["Accept"] = "application/vnd.github.raw"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
 
 def latest_version() -> str | None:
     """The version on GitHub, or None if it cannot be reached."""
-    try:
-        text = _get(VERSION_URL, timeout=20).decode("utf-8", "replace")
-    except (urllib.error.URLError, OSError, ValueError):
-        return None
-    m = _VERSION_RE.search(text)
-    return m.group(1) if m else None
+    for url, raw in ((VERSION_URL, True), (VERSION_URL_FALLBACK, False)):
+        try:
+            text = _get(url, timeout=20, raw=raw).decode("utf-8", "replace")
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+        m = _VERSION_RE.search(text)
+        if m:
+            return m.group(1)
+    return None
 
 
 def check(force: bool = False) -> Available | None:

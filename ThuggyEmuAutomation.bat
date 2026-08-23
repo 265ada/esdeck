@@ -1,6 +1,6 @@
 @echo off
 rem ===========================================================================
-rem  esdeck - the only file you need.
+rem  ThuggyEmuAutomation - the only file you need.
 rem
 rem  Keep this one shortcut. Every time it opens it checks GitHub, updates
 rem  itself and the other .bat files if anything is newer, and then offers a
@@ -9,7 +9,7 @@ rem
 rem  Optional:  --no-update   skip the update check (offline, or in a hurry)
 rem ===========================================================================
 setlocal enabledelayedexpansion
-title esdeck
+title ThuggyEmuAutomation
 cd /d "%~dp0"
 
 set "OPT_NOUPDATE="
@@ -48,6 +48,7 @@ if not defined OPT_NOUPDATE (
 cls
 echo.
 echo   ===========================================================
+echo     ThuggyEmuAutomation
 for /f "delims=" %%v in ('%ESDECK% --version 2^>nul') do echo     %%v
 echo   ===========================================================
 echo.

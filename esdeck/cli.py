@@ -38,6 +38,7 @@ from . import dedupe as dedupe_mod
 from . import drives as drives_mod
 from . import emulators as emu_mod
 from . import history as history_mod
+from . import icon as icon_mod
 from . import launcher, plan as plan_mod
 from . import progress as progress_mod
 from . import scan as scan_mod
@@ -636,6 +637,66 @@ def cmd_drives(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------- icon
+def cmd_icon(args) -> int:
+    """Crop a picture to a circle and write a Windows .ico, then a shortcut."""
+    src = Path(args.source)
+    if not src.is_file():
+        _p(f"No such image: {src}")
+        return 2
+    dest = Path(args.dest) if args.dest else src.with_suffix(".ico")
+    try:
+        side, out = icon_mod.make(src, dest)
+    except icon_mod.IconError as exc:
+        _p(f"Could not use {src.name}: {exc}")
+        _p("Save it as a non-interlaced 8-bit PNG and try again.")
+        return 2
+    _p(f"Wrote {out}  ({side}x{side} source, corners made transparent)")
+
+    if args.shortcut:
+        target = Path(args.shortcut).resolve()
+        link = _desktop() / f"{args.name}.lnk"
+        if make_shortcut(link, target, out, log=_p):
+            _p(f"Shortcut: {link}")
+        else:
+            _p("Could not create the shortcut.")
+    return 0
+
+
+def _desktop() -> Path:
+    for candidate in (Path.home() / "OneDrive" / "Desktop", Path.home() / "Desktop"):
+        if candidate.is_dir():
+            return candidate
+    return Path.home()
+
+
+def make_shortcut(link: Path, target: Path, icon_path: Path | None = None,
+                  *, log=print) -> bool:
+    """A .lnk on the Desktop. Batch files cannot carry an icon; shortcuts can."""
+    import subprocess
+    ps = (
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{link}');"
+        "$s.TargetPath = '{target}';"
+        "$s.WorkingDirectory = '{wd}';"
+        "{icon}"
+        "$s.Save()"
+    ).format(link=str(link).replace("'", "''"),
+             target=str(target).replace("'", "''"),
+             wd=str(target.parent).replace("'", "''"),
+             icon=(f"$s.IconLocation = '{str(icon_path).replace(chr(39), chr(39)*2)}';"
+                   if icon_path else ""))
+    try:
+        proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"  {exc}")
+        return False
+    if proc.returncode != 0:
+        log(f"  {(proc.stderr or proc.stdout).strip()[:200]}")
+        return False
+    return link.is_file()
+
+
 # ------------------------------------------------------------------- update
 def cmd_update(args) -> int:
     """Check GitHub for a newer esdeck and install it."""
@@ -1164,6 +1225,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--normalize", metavar="ANSWER",
                    help="turn a typed answer like 'G' into an absolute folder")
     p.set_defaults(func=cmd_drives)
+
+    p = sub.add_parser("icon", help="make a circular .ico from a picture")
+    p.add_argument("source", help="a PNG to crop")
+    p.add_argument("--dest", help="where to write the .ico")
+    p.add_argument("--shortcut", help="also make a Desktop shortcut to this .bat")
+    p.add_argument("--name", default="ThuggyEmuAutomation",
+                   help="name for the shortcut")
+    p.set_defaults(func=cmd_icon)
 
     p = sub.add_parser("update", help="check GitHub for a newer esdeck and install it")
     p.add_argument("--yes", action="store_true", help="install it, not just report")

@@ -178,11 +178,14 @@ rem Clear up a stray folder left by an older version answering "G" literally.
 set "DESKTOP=%USERPROFILE%\Desktop"
 if not exist "%DESKTOP%" set "DESKTOP=%USERPROFILE%\OneDrive\Desktop"
 if exist "%DESKTOP%" (
-    for %%b in (esdeck-launcher.bat sort-games.bat fix-library.bat) do (
+    for %%b in (ThuggyEmuAutomation.bat sort-games.bat fix-library.bat) do (
         if exist "%%b" copy /y "%%b" "%DESKTOP%\%%b" >nul
     )
     echo  [ok] esdeck shortcuts placed on your Desktop
-    echo       Use "esdeck-launcher" from now on - it keeps itself updated.
+    if exist "assets\ThuggyEmuAutomation.png" (
+        %ESDECK% icon "assets\ThuggyEmuAutomation.png" --dest "%DESKTOP%\ThuggyEmuAutomation.ico" --shortcut "%DESKTOP%\ThuggyEmuAutomation.bat" >nul 2>&1
+    )
+    echo       Use "ThuggyEmuAutomation" from now on - it keeps itself updated.
 )
 
 echo.

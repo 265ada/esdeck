@@ -6,6 +6,23 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.9.0] - 2026-08-22
+
+### Added
+- **ThuggyEmuAutomation** - the launcher is now named, and takes an icon.
+  `esdeck icon` crops a square picture to the circle inside it, makes the
+  corners transparent so a black background disappears, writes a multi-size
+  Windows `.ico`, and creates the Desktop shortcut. Batch files cannot carry an
+  icon themselves; a shortcut can. Done with the standard library alone - a PNG
+  is zlib-compressed scanlines, and an .ico may hold PNG payloads directly.
+
+### Fixed
+- **The update check could report a stale version.** It read
+  raw.githubusercontent, which is CDN-cached for several minutes, so straight
+  after a push it still answered with the old version - observed live. It now
+  asks the GitHub API, which returns the current file, and falls back to the raw
+  URL only if the API cannot be reached.
+
 ## [0.8.0] - 2026-08-22
 
 ### Added

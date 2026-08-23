@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+import struct
 import zipfile
 from pathlib import Path
 
@@ -13,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from esdeck import apply as apply_mod          # noqa: E402
 from esdeck import archives, bios, clean, cleanup, config, controller  # noqa: E402
 from esdeck import cores, drives  # noqa: E402
-from esdeck import dedupe, emulators, esde, history  # noqa: E402
+from esdeck import dedupe, emulators, esde, history, icon  # noqa: E402
 from esdeck import progress  # noqa: E402
 from esdeck import launcher, plan  # noqa: E402
 from esdeck import readme_parse  # noqa: E402
@@ -1649,6 +1650,56 @@ class TestUpdater(unittest.TestCase):
             copied = update._refresh_bats(src, dst, log=lambda *a: None)
             self.assertEqual(copied, 1)
             self.assertEqual((dst / "b.bat").read_bytes(), b"new")
+
+
+class TestIcon(unittest.TestCase):
+    """Cropping artwork to a circle and writing a Windows .ico."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.d = Path(self.td.name)
+        self.side = 120
+        rgba = bytearray()
+        for y in range(self.side):
+            for x in range(self.side):
+                cx, cy = x - self.side / 2, y - self.side / 2
+                inside = cx * cx + cy * cy <= (self.side / 2 - 2) ** 2
+                rgba += bytes((10, 80, 200, 255)) if inside else bytes((0, 0, 0, 255))
+        self.src = self.d / "art.png"
+        icon.write_png(self.src, self.side, rgba)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_png_round_trips(self):
+        w, h, _ = icon.read_png(self.src)
+        self.assertEqual((w, h), (self.side, self.side))
+
+    def test_corners_become_transparent(self):
+        """The black area outside the circle must not survive."""
+        w, h, rgba = icon.read_png(self.src)
+        side, cropped = icon.circle_crop(w, h, rgba)
+        self.assertEqual(cropped[3], 0)
+        centre = ((side // 2) * side + side // 2) * 4
+        self.assertEqual(cropped[centre + 3], 255)
+
+    def test_ico_has_several_sizes(self):
+        _side, out = icon.make(self.src, self.d / "out.ico")
+        data = out.read_bytes()
+        self.assertEqual(struct.unpack("<H", data[2:4])[0], 1)      # type 1 = icon
+        self.assertGreater(struct.unpack("<H", data[4:6])[0], 1)    # several sizes
+
+    def test_non_png_is_refused_clearly(self):
+        bad = self.d / "not.png"
+        bad.write_bytes(b"this is not an image")
+        with self.assertRaises(icon.IconError):
+            icon.read_png(bad)
+
+    def test_resize_produces_the_requested_size(self):
+        _w, _h, rgba = icon.read_png(self.src)
+        side, cropped = icon.circle_crop(self.side, self.side, rgba)
+        small = icon.resize(side, cropped, 32)
+        self.assertEqual(len(small), 32 * 32 * 4)
 
 
 if __name__ == "__main__":
