@@ -6,6 +6,18 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.10.0] - 2026-08-23
+
+### Added
+- **The Desktop icon works out of the box.** A placeholder icon ships with the
+  project and setup builds the shortcut from it, so the launcher has a real icon
+  rather than the default batch-file one. Batch files cannot carry an icon
+  themselves - a shortcut can, which is why setup creates one.
+- **`set-icon.bat`** - drag any square PNG onto it to use your own artwork. It
+  crops to the circle, makes the corners transparent, rebuilds the `.ico` and
+  the shortcut. Note that Windows caches shortcut icons: press F5 on the Desktop
+  if the old one lingers.
+
 ## [0.9.1] - 2026-08-22
 
 ### Added

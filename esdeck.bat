@@ -183,7 +183,10 @@ if exist "%DESKTOP%" (
     )
     echo  [ok] esdeck shortcuts placed on your Desktop
     if exist "assets\ThuggyEmuAutomation.png" (
-        %ESDECK% icon "assets\ThuggyEmuAutomation.png" --dest "%DESKTOP%\ThuggyEmuAutomation.ico" --shortcut "%DESKTOP%\ThuggyEmuAutomation.bat" >nul 2>&1
+        %ESDECK% icon "assets\ThuggyEmuAutomation.png" ^
+            --dest "%DESKTOP%\ThuggyEmuAutomation.ico" ^
+            --shortcut "%DESKTOP%\ThuggyEmuAutomation.bat" >nul 2>&1
+        if exist "%DESKTOP%\ThuggyEmuAutomation.lnk" echo  [ok] Desktop icon created
     )
     echo       Use "ThuggyEmuAutomation" from now on - it keeps itself updated.
 )
