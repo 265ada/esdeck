@@ -57,17 +57,19 @@ rem ---------------------------------------------------------------- find it
 set "GAMEDIR="
 
 rem A folder dragged onto this file wins.
-if not "%~1"=="" if exist "%~1\Ascension.exe" set "GAMEDIR=%~1"
-if not "%~1"=="" if exist "%~1\Wow.exe" set "GAMEDIR=%~1"
+if not "%~1"=="" set "GAMEDIR=%~1"
 
 if not defined GAMEDIR call :findgame
 
 if not defined GAMEDIR (
     echo   [!] Could not find Ascension automatically.
     echo.
-    echo       Find the folder containing Ascension.exe - the error message
-    echo       names it, for example:
-    echo         C:\Ascension\Launcher\resources\ascension-live
+    echo       Find the folder holding your Interface and WTF folders -
+    echo       usually named ascension-live, for example:
+    echo         C:\ascension-live
+    echo.
+    echo       NOT the one inside Launcher\resources - that is the
+    echo       launcher's own copy and holds none of your settings.
     echo.
     echo       Then drag that folder onto this file and run it again.
     echo.
@@ -182,6 +184,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$e=Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows-WHEA-Logger'} -MaxEvents 5 -ErrorAction SilentlyContinue; if($e){$e|ForEach-Object{'{0}  {1}' -f $_.TimeCreated,$_.LevelDisplayName}}else{'none - good'}" >>"%REPORT%" 2>nul
 
+>>"%REPORT%" echo.
+>>"%REPORT%" echo ------------------------------------------------------------
+>>"%REPORT%" echo THE GAME'S OWN CRASH LOG
+>>"%REPORT%" echo (the module named here is the best clue there is)
+>>"%REPORT%" echo ------------------------------------------------------------
+set "ERRDIR="
+if defined GAMEDIR if exist "%GAMEDIR%\Errors" set "ERRDIR=%GAMEDIR%\Errors"
+if defined ERRDIR (
+    set "ERRFILE="
+    for /f "delims=" %%F in ('dir /b /o-d "!ERRDIR!\*.txt" 2^>nul') do (
+        if not defined ERRFILE set "ERRFILE=!ERRDIR!\%%F"
+    )
+    if defined ERRFILE (
+        >>"%REPORT%" echo From !ERRFILE!
+        >>"%REPORT%" echo.
+        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+          "Get-Content -LiteralPath '!ERRFILE!' -TotalCount 60" >>"%REPORT%" 2>nul
+    ) else (
+        >>"%REPORT%" echo Errors folder is empty - no crash has been recorded.
+    )
+) else (
+    >>"%REPORT%" echo No Errors folder found.
+)
+
 rem ------------------------------------------------------- optional repair
 echo  ===========================================================
 echo.
@@ -262,38 +288,44 @@ if exist "%~1" (
 goto :eof
 
 :findgame
-rem Look where it usually is before searching, because searching a whole
-rem disk is slow and this is nearly always in one of these.
+rem The folder that matters is the one holding the game DATA - Interface, WTF,
+rem Cache. Ascension.exe lives somewhere else: the launcher keeps its own copy
+rem under Launcher\resources\ascension-live, so going by the .exe lands there,
+rem where there is nothing to repair and nothing of yours to protect. The real
+rem data sits in a folder like C:\ascension-live.
 for %%R in (
-    "%SystemDrive%\Ascension\Launcher\resources\ascension-live"
-    "%LOCALAPPDATA%\Ascension\Launcher\resources\ascension-live"
+    "%SystemDrive%\ascension-live"
+    "C:\ascension-live"
+    "D:\ascension-live"
+    "E:\ascension-live"
+    "F:\ascension-live"
+    "%SystemDrive%\Ascension\ascension-live"
+    "D:\Ascension\ascension-live"
     "%SystemDrive%\Ascension"
-    "%SystemDrive%\Games\Ascension"
-    "D:\Ascension\Launcher\resources\ascension-live"
     "D:\Ascension"
     "D:\Games\Ascension"
     "E:\Ascension"
 ) do (
-    if exist "%%~R\Ascension.exe" (
-        set "GAMEDIR=%%~R"
-        goto :eof
-    )
-    if exist "%%~R\Wow.exe" (
-        set "GAMEDIR=%%~R"
-        goto :eof
-    )
+    if not defined GAMEDIR call :isdata "%%~R"
 )
+if defined GAMEDIR goto :eof
 
 echo   Not in the usual places - searching your drives. This can take
 echo   a minute or two.
 echo.
-for %%D in (C D E F) do (
+for %%D in (C D E F G) do (
     if exist "%%D:\" (
-        for /f "delims=" %%F in ('dir /s /b "%%D:\Ascension.exe" 2^>nul') do (
-            if not defined GAMEDIR set "GAMEDIR=%%~dpF"
+        for /f "delims=" %%F in ('dir /s /b /ad "%%D:\ascension-live" 2^>nul') do (
+            if not defined GAMEDIR call :isdata "%%F"
         )
     )
 )
-rem dir returns a trailing backslash; strip it so paths read cleanly.
-if defined GAMEDIR if "!GAMEDIR:~-1!"=="\" set "GAMEDIR=!GAMEDIR:~0,-1!"
+goto :eof
+
+:isdata
+rem Interface, WTF and Cache are the game's own folders. Requiring one of them
+rem keeps us out of the launcher's copy, which has none of them.
+if exist "%~1\Interface" set "GAMEDIR=%~1"
+if exist "%~1\WTF" set "GAMEDIR=%~1"
+if exist "%~1\Cache" set "GAMEDIR=%~1"
 goto :eof
