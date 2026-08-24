@@ -172,3 +172,58 @@ class MissingLibraryTests(unittest.TestCase):
             (rom / "snes").mkdir(parents=True)
             (rom / "snes" / "Mario.sfc").write_bytes(b"rom")
             self.assertTrue(cleanup.library_is_intact(rom))
+
+
+class ReadyToRunTests(unittest.TestCase):
+    """Setting a PC up has to leave it actually usable.
+
+    Naming where things live and then not creating the folders leaves a setup
+    that looks finished and has nowhere to put a game.
+    """
+
+    def test_init_creates_the_layout_it_configures(self):
+        import types
+        from esdeck import cli, config
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            saved = config.CONFIG_PATH
+            config.CONFIG_PATH = td / "config.json"
+            try:
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    cli.cmd_init(types.SimpleNamespace(
+                        rom_dir=str(td / "ROMs"), es_config_dir=str(td / "ES-DE"),
+                        install_dir=None, source_dir=[str(td / "Games" / "Incoming")],
+                        force=True))
+            finally:
+                config.CONFIG_PATH = saved
+            self.assertTrue((td / "ROMs").is_dir(), "no games library")
+            self.assertTrue((td / "ROMs" / "windows").is_dir(), "nowhere for PC games")
+            self.assertTrue((td / "Games" / "Incoming").is_dir(), "no drop folder")
+
+    def test_a_guessable_path_is_not_a_configured_one(self):
+        # config.load() falls back to autodetection, so asking it where games
+        # live always answers. Only the config file says anyone chose - and
+        # asking the wrong question means never asking a fresh PC at all.
+        import types
+        from esdeck import cli, config
+        with tempfile.TemporaryDirectory() as td:
+            saved = config.CONFIG_PATH
+            config.CONFIG_PATH = Path(td) / "config.json"
+            try:
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    cli.cmd_drives(types.SimpleNamespace(
+                        configured=True, rom_dir=False, current=False,
+                        normalize=None, suggest=False))
+                self.assertEqual(buf.getvalue().strip(), "no")
+
+                config.CONFIG_PATH.write_text("{}", encoding="utf-8")
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    cli.cmd_drives(types.SimpleNamespace(
+                        configured=True, rom_dir=False, current=False,
+                        normalize=None, suggest=False))
+                self.assertEqual(buf.getvalue().strip(), "yes")
+            finally:
+                config.CONFIG_PATH = saved

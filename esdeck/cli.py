@@ -117,6 +117,20 @@ def cmd_init(args) -> int:
                 cfg.media_dir = str(detected / "downloaded_media")
     path = config.save(cfg)
     _p(f"Wrote {path}")
+
+    # Configuring where things live and then not making the folders leaves a
+    # setup that looks finished and has nowhere to put a game. Create them.
+    for label, target in ([("games library", cfg.rom_dir),
+                           ("Windows games", cfg.install_dir)]
+                          + [("drop folder", d) for d in cfg.source_dirs]):
+        if not target:
+            continue
+        try:
+            existed = Path(target).is_dir()
+            Path(target).mkdir(parents=True, exist_ok=True)
+            _p(f"  {'found' if existed else 'created'} {label}: {target}")
+        except OSError as exc:
+            _p(f"  could not create {label} at {target}: {exc}")
     for k, v in cfg.to_dict().items():
         _p(f"  {k:16} {v}")
     return 0
@@ -676,6 +690,14 @@ def cmd_drives(args) -> int:
     if args.current:
         cfg = config.load()
         _p(str(Path(cfg.rom_dir).parent) if cfg.rom_dir else "")
+        return 0
+    if args.configured:
+        # Whether anyone has actually chosen, as opposed to what we would guess
+        # in the absence of a choice. config.load() falls back to autodetection,
+        # so a guessed path is never absence of configuration - and asking the
+        # question that way would mean never asking a fresh PC where its games
+        # should go.
+        _p("yes" if config.CONFIG_PATH.is_file() else "no")
         return 0
     if args.rom_dir:
         # --current gives the drive, which is what the setup questions are
@@ -1365,6 +1387,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="print only the suggested folder, for scripts")
     p.add_argument("--current", action="store_true",
                    help="print the games folder this PC is already using")
+    p.add_argument("--configured", action="store_true",
+                   help="say whether a games folder has actually been chosen")
     p.add_argument("--rom-dir", action="store_true",
                    help="print the folder the games library lives in")
     p.add_argument("--normalize", metavar="ANSWER",

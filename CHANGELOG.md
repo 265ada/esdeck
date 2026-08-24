@@ -6,6 +6,34 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.19.0] - 2026-08-23
+
+### Fixed
+- **"Set up this PC" never actually configured the PC.** It installed ES-DE,
+  RetroArch and the cores, and then stopped short of the thing that makes them
+  usable: it never wrote a configuration and never made a folder. So the window
+  went on saying "No games folder configured yet" after a setup that had
+  apparently succeeded, and there was nowhere to put a game.
+
+  Setup now begins by asking one question - which drive - and does everything
+  else itself: writes the configuration, creates the games library and the drop
+  folder, installs ES-DE and RetroArch, fetches every core, maps the emulators,
+  makes the pad player one, and finishes by telling you where to drop games.
+
+  The question is asked only on a machine that has never been set up. Running
+  it again is a repair, and a repair must not move anyone's library.
+
+- **A guessed path was being mistaken for a configured one.** esdeck can always
+  autodetect somewhere plausible for games to live, so asking it where they go
+  always got an answer - which meant a brand new PC looked configured and was
+  never asked. It is now asked whether anyone actually *chose*, which is the
+  only thing that distinguishes the two.
+
+### Added
+- The drive question lists every fixed drive with its free space and preselects
+  the one with the most room, which is what a collection of this size needs and
+  is right far more often than wherever Windows happens to be installed.
+
 ## [0.18.0] - 2026-08-23
 
 ### Fixed

@@ -126,7 +126,7 @@ namespace ThuggyEmuAutomation
             int y = 4;
             AddAction("Set up this PC",
                       "Installs ES-DE, RetroArch, every core, and the folders", ref y,
-                      delegate { Run("Setting up this PC", SetupSteps()); });
+                      OnSetup);
             AddAction("Sort games",
                       "Files everything in your Incoming folder into the library", ref y,
                       delegate
@@ -474,15 +474,140 @@ namespace ThuggyEmuAutomation
             catch { return null; }
         }
 
-        private string[] SetupSteps()
+        // -------------------------------------------------- setting up a PC
+
+        /// <summary>Ask which drive the games should live on.
+        ///
+        /// It has to be asked somewhere. A collection is hundreds of gigabytes
+        /// and the right drive is a decision only the person in front of the
+        /// machine can make - but it is one question with a sensible default,
+        /// not an interrogation, and everything after it is automatic.
+        /// </summary>
+        private string ChooseDrive()
         {
+            List<DriveInfo> usable = new List<DriveInfo>();
+            try
+            {
+                foreach (DriveInfo d in DriveInfo.GetDrives())
+                {
+                    try
+                    {
+                        if (d.DriveType == DriveType.Fixed && d.IsReady)
+                            usable.Add(d);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            if (usable.Count == 0) return null;
+
+            // Default to the roomiest drive: that is what a large collection
+            // needs, and it is right far more often than "wherever Windows is".
+            DriveInfo best = usable[0];
+            foreach (DriveInfo d in usable)
+                if (d.AvailableFreeSpace > best.AvailableFreeSpace) best = d;
+
+            Form dlg = new Form();
+            dlg.Text = "Where should your games live?";
+            dlg.ClientSize = new Size(460, 260);
+            dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dlg.StartPosition = FormStartPosition.CenterParent;
+            dlg.MinimizeBox = false;
+            dlg.MaximizeBox = false;
+            dlg.BackColor = Color.FromArgb(28, 33, 47);
+            dlg.ForeColor = Color.White;
+            dlg.Font = Font;
+
+            Label intro = new Label();
+            intro.Text = "Pick the drive with room for your collection. A games "
+                + "folder and a drop folder are created there.";
+            intro.SetBounds(16, 12, 428, 40);
+            dlg.Controls.Add(intro);
+
+            ListBox list = new ListBox();
+            list.SetBounds(16, 58, 428, 130);
+            list.BackColor = Color.FromArgb(18, 22, 33);
+            list.ForeColor = Color.White;
+            list.BorderStyle = BorderStyle.FixedSingle;
+            foreach (DriveInfo d in usable)
+            {
+                double freeGb = d.AvailableFreeSpace / 1073741824.0;
+                double totalGb = d.TotalSize / 1073741824.0;
+                string label = d.Name + "   " + freeGb.ToString("0") + " GB free of "
+                             + totalGb.ToString("0") + " GB";
+                if (d.Name == best.Name) label += "      (most room)";
+                list.Items.Add(label);
+                if (d.Name == best.Name) list.SelectedIndex = list.Items.Count - 1;
+            }
+            dlg.Controls.Add(list);
+
+            Button ok = new Button();
+            ok.Text = "Use this drive";
+            ok.SetBounds(240, 200, 130, 32);
+            ok.DialogResult = DialogResult.OK;
+            StyleSmall(ok);
+            dlg.Controls.Add(ok);
+
+            Button cancel = new Button();
+            cancel.Text = "Cancel";
+            cancel.SetBounds(380, 200, 64, 32);
+            cancel.DialogResult = DialogResult.Cancel;
+            StyleSmall(cancel);
+            dlg.Controls.Add(cancel);
+
+            dlg.AcceptButton = ok;
+            dlg.CancelButton = cancel;
+
+            if (dlg.ShowDialog(this) != DialogResult.OK || list.SelectedIndex < 0)
+                return null;
+            return usable[list.SelectedIndex].Name;      // "D:\"
+        }
+
+        private void OnSetup(object sender, EventArgs e)
+        {
+            // Only ask when there is nothing configured. A second run is a
+            // repair, and repairs should not move anyone's library.
+            // Not "can we guess a path" - esdeck can always guess one - but
+            // "has anyone chosen", which is the only thing that distinguishes
+            // a fresh PC from a configured one.
+            string configured = RunAndRead("drives --configured");
+            string drive = null;
+            if (configured == null || configured.Trim() != "yes")
+            {
+                drive = ChooseDrive();
+                if (drive == null) return;              // cancelled: change nothing
+            }
+
             List<string> steps = new List<string>();
+            if (drive != null)
+            {
+                string root = drive.EndsWith("\\") ? drive : drive + "\\";
+                steps.Add("init --force"
+                    + " --rom-dir \"" + root + "ROMs\""
+                    + " --source-dir \"" + root + "Games\\Incoming\"");
+            }
             steps.Add("bootstrap --yes");
             steps.Add("link --yes --create");
             steps.Add("cores --all --yes");
             steps.Add("emulators --apply --yes");
+            steps.Add("controller --yes");
             steps.Add("doctor");
-            return steps.ToArray();
+
+            Run("Set up this PC", steps.ToArray(), delegate (int code)
+            {
+                string folder = RunAndRead("drives --rom-dir");
+                if (string.IsNullOrEmpty(folder)) return;
+                string incoming = Path.Combine(
+                    Path.GetPathRoot(folder), "Games\\Incoming");
+                MessageBox.Show(this,
+                    "This PC is ready.\r\n\r\n"
+                    + "Your games library:  " + folder + "\r\n"
+                    + "Drop new games in:   " + incoming + "\r\n\r\n"
+                    + "Put games - folders, zips, split archives, anything - into "
+                    + "the drop folder, then choose \"Sort games\". They are filed "
+                    + "into the library and ES-DE picks them up.",
+                    "Set up", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
         }
 
         // -------------------------------------------------------- running it
