@@ -192,11 +192,15 @@ def run(cfg: Config, *, packages=DEFAULT_PACKAGES, dry_run: bool = True,
         log("Backing up existing settings before reinstalling:")
         backup_user_data(Path(cfg.rom_dir).parent / f"esdeck-backup-{stamp}",
                          dry_run=dry_run, log=log)
-    log("Packages:")
-    for key in packages:
+    # winget installs are slow and silent from out here, so say which one is
+    # being worked on and how many are left.
+    todo = [k for k in packages if k in PACKAGES]
+    log(f"Packages ({len(todo)} to check):")
+    for n, key in enumerate(packages, 1):
         if key not in PACKAGES:
             log(f"  SKIP   unknown package {key!r}")
             continue
+        log(f"  [{n}/{len(todo)}] {key}")
         install_package(key, dry_run=dry_run, repair=repair, log=log)
     log("ROM directories:")
     make_rom_tree(cfg, dry_run=dry_run, log=log)

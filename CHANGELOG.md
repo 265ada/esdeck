@@ -6,6 +6,43 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.20.0] - 2026-08-23
+
+### Added
+- **The install reports progress and an estimate, like the sorting does.**
+  Fetching every emulator core is eighty downloads and several minutes, and it
+  used to pass in silence. It now shows a bar, a count, which core is being
+  fetched and how long is left. A core is counted when it has finished, not
+  when it starts - counting it early makes the estimate run ahead of the truth.
+
+- **Each step says which one it is, and how many there are.** The activity
+  strip reads "Step 4 of 7: downloading emulator cores" rather than leaving a
+  long install shapeless. The stage names say what is happening -
+  "installing ES-DE and RetroArch", "making the pad player one" - because
+  `cores --all --yes` is the honest label but not the thing anyone is waiting
+  for.
+
+- Installing packages counts them too, so a slow winget install says which of
+  how many it is working through.
+
+### Fixed
+- Nothing was wrong with the GameCube folder or the cores, but both are now
+  pinned by tests so they cannot drift:
+
+  - The folder must be `gc`, which is what ES-DE looks for. Filed under
+    `gamecube` it would simply never appear, with no error to explain why. The
+    same trap exists for `psx` and not `ps1`, `megadrive` and not `genesis`,
+    and eight more, all now checked - along with every folder esdeck sorts
+    into, against ES-DE's own definitions, whenever ES-DE is installed.
+  - `.iso` is deliberately *not* claimed by GameCube: it belongs equally to
+    Wii, PS2 and Saturn, so it is decided by reading the disc header instead.
+    A test covers a GameCube and a Wii disc being told apart that way.
+
+  Checked against this machine: all 80 cores ES-DE's own definitions call for
+  are installed, none missing, and all 32 folders esdeck files into are names
+  ES-DE detects. The 44 remaining systems - Android, Kodi, Steam, ports - do
+  not use libretro cores at all, which is correct rather than a gap.
+
 ## [0.19.1] - 2026-08-23
 
 ### Changed

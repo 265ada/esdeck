@@ -16,6 +16,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from .progress import human_time as _human_time
+
 from . import esde
 
 BUILDBOT = "https://buildbot.libretro.com/nightly/windows/x86_64/latest"
@@ -207,7 +209,7 @@ def download_core(core: str, cores_dir: Path, *, dry_run: bool = True, log=print
 
 
 def run(rom_dir: Path, *, only: list[str] | None = None, dry_run: bool = True,
-        log=print) -> int:
+        log=print, progress=None) -> int:
     base, cores_dir = retroarch_dirs()
     if cores_dir is None:
         log("RetroArch not found - install it first (esdeck bootstrap --packages retroarch --yes)")
@@ -219,7 +221,29 @@ def run(rom_dir: Path, *, only: list[str] | None = None, dry_run: bool = True,
     wanted = [c for c in wanted if c]
     log(f"RetroArch: {base}")
     log(f"Cores dir: {cores_dir}  ({len(installed_cores(cores_dir))} installed)")
+    # Fetching eighty cores from the buildbot is minutes of work with nothing
+    # to show for it in between, so it reports like every other long job.
+    already = installed_cores(cores_dir)
+    todo = [c for c in wanted if c not in already]
+    bar = None
+    if progress is not None and len(todo) > 1:
+        bar = progress
+        bar.total_items = len(todo)
+        bar.start()
     ok = 0
-    for core in wanted:
-        ok += bool(download_core(core, cores_dir, dry_run=dry_run, log=log))
+    try:
+        for core in wanted:
+            fetching = bar is not None and core in todo
+            if fetching:
+                # Name it before starting, count it after finishing: a core
+                # still downloading is not a core done, and an estimate built
+                # on counting it early runs ahead of the truth.
+                bar.advance(label=f"downloading {core}")
+            ok += bool(download_core(core, cores_dir, dry_run=dry_run, log=log))
+            if fetching:
+                bar.advance(items=1)
+    finally:
+        if bar is not None:
+            bar.finish(f"  {len(todo)} core(s) fetched in "
+                       f"{_human_time(bar.elapsed)}")
     return ok

@@ -60,6 +60,7 @@ namespace ThuggyEmuAutomation
         private ulong lastRead, lastWrite;
         private DateTime lastSampled;
         private int tickCount;
+        private volatile string stage;
         private double readRate, writeRate;
 
         private readonly List<string> pending = new List<string>();
@@ -663,6 +664,7 @@ namespace ThuggyEmuAutomation
             activityBar.MarqueeAnimationSpeed = 30;
             activityBar.Value = 0;
             activityLabel.Text = "Starting...";
+            stage = null;
             lock (pending) pending.Clear();
             written = 0;
             tickCount = 0;
@@ -677,6 +679,39 @@ namespace ThuggyEmuAutomation
         /// activity display froze exactly when there was most to report. Lines
         /// are collected here and flushed on a timer instead.
         /// </summary>
+        //: The command is the honest label, but "cores --all --yes" is not
+        //: what someone is waiting for - "downloading emulator cores" is.
+        private static string StepName(string step)
+        {
+            if (step.StartsWith("init")) return "choosing where games live";
+            if (step.StartsWith("bootstrap")) return "installing ES-DE and RetroArch";
+            if (step.StartsWith("link")) return "pointing ES-DE at your library";
+            if (step.StartsWith("cores")) return "downloading emulator cores";
+            if (step.StartsWith("emulators")) return "matching emulators to systems";
+            if (step.StartsWith("controller")) return "making the pad player one";
+            if (step.StartsWith("doctor")) return "checking everything over";
+            if (step.StartsWith("tidy")) return "tidying the library";
+            if (step.StartsWith("sync")) return "filing your games";
+            if (step.StartsWith("cleanup")) return "removing artwork filed as games";
+            if (step.StartsWith("clean")) return "reclaiming space";
+            if (step.StartsWith("undo")) return "undoing the last sort";
+            if (step.StartsWith("bios")) return "checking BIOS files";
+            if (step.StartsWith("logs")) return "bundling the logs";
+            if (step.StartsWith("update")) return "checking for updates";
+            int space = step.IndexOf(' ');
+            return space > 0 ? step.Substring(0, space) : step;
+        }
+
+        private void SetStage(string text)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke((MethodInvoker)delegate { SetStage(text); });
+                return;
+            }
+            stage = text;
+        }
+
         private void Append(string line)
         {
             lock (pending) pending.Add(line);
@@ -810,7 +845,9 @@ namespace ThuggyEmuAutomation
                                 up.Minutes, up.Seconds)
                 : string.Format("{0}:{1:00}", up.Minutes, up.Seconds);
             bool moving = (readRate + writeRate) > 65536;
-            activityLabel.Text = "Working  " + elapsed
+            string where = stage;
+            activityLabel.Text = (string.IsNullOrEmpty(where) ? "Working" : where)
+                + "   " + elapsed
                 + "      disk  read " + Bytes(readRate) + "/s"
                 + "   write " + Bytes(writeRate) + "/s"
                 + (moving ? "" : "      (idle - working it out, not stuck)");
@@ -845,9 +882,14 @@ namespace ThuggyEmuAutomation
                     return;
                 }
 
+                int stepNumber = 0;
                 foreach (string step in steps)
                 {
                     if (cancelled) break;
+                    stepNumber++;
+                    if (steps.Length > 1)
+                        SetStage("Step " + stepNumber + " of " + steps.Length
+                                 + ": " + StepName(step));
                     Append("> esdeck " + step);
                     int code = RunStep(py, step);
                     lastCode = code;

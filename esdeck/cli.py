@@ -1174,7 +1174,8 @@ def cmd_cores(args) -> int:
         only = cores_mod.all_cores()
     elif args.common:
         only = list(cores_mod.COMMON_CORES)
-    cores_mod.run(Path(cfg.rom_dir), only=only, dry_run=not args.yes, log=_p)
+    cores_mod.run(Path(cfg.rom_dir), only=only, dry_run=not args.yes, log=_p,
+                  progress=progress_mod.Progress() if args.yes else None)
     if not args.yes:
         _p("\nDRY RUN. Re-run with --yes to download from the libretro buildbot.")
     return 0
