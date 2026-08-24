@@ -56,8 +56,14 @@ echo.
 rem ---------------------------------------------------------------- find it
 set "GAMEDIR="
 
-rem A folder dragged onto this file wins.
-if not "%~1"=="" set "GAMEDIR=%~1"
+rem A folder dragged onto this file is tried first - but it still has to
+rem look like the game. The folder the error message names is the
+rem launcher's, and that is the one someone will reach for.
+if not "%~1"=="" call :isdata "%~1"
+if not "%~1"=="" if not defined GAMEDIR (
+    echo   That folder is not the game client - looking for the real one.
+    echo.
+)
 
 if not defined GAMEDIR call :findgame
 
@@ -325,7 +331,14 @@ goto :eof
 :isdata
 rem Interface, WTF and Cache are the game's own folders. Requiring one of them
 rem keeps us out of the launcher's copy, which has none of them.
+rem Refuse the launcher's own copy outright. It is an Electron app: it has
+rem a Cache folder, which is why "has a Cache" used to be enough to fool this.
+echo %~1 | find /i "\Launcher\" >nul 2>&1
+if not errorlevel 1 goto :eof
+
+rem Interface, WTF and Data are the game client's own folders, and the
+rem launcher's copy has none of them. Cache proves nothing.
 if exist "%~1\Interface" set "GAMEDIR=%~1"
 if exist "%~1\WTF" set "GAMEDIR=%~1"
-if exist "%~1\Cache" set "GAMEDIR=%~1"
+if exist "%~1\Data" set "GAMEDIR=%~1"
 goto :eof

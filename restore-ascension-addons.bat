@@ -225,8 +225,11 @@ goto :eof
 :checkdata
 rem Is this the game data root? Interface and WTF live here - Ascension.exe
 rem does not, and looking for the .exe is what sent us to the wrong folder.
+echo %~1 | find /i "\Launcher\" >nul 2>&1
+if not errorlevel 1 goto :eof
 if exist "%~1\Interface" set "DATADIR=%~1"
 if exist "%~1\WTF" set "DATADIR=%~1"
+if exist "%~1\Data" set "DATADIR=%~1"
 goto :eof
 
 :restore
