@@ -6,6 +6,35 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.18.0] - 2026-08-23
+
+### Fixed
+- **Finding Python on a PC that has never been set up.** Two things defeated
+  looking on PATH, and both are normal on a fresh Windows 11 machine.
+
+  Windows ships a stub called `python.exe` that does nothing but open the
+  Microsoft Store. Finding that name told us nothing about whether Python was
+  there, and using it fails in a way that looks like Python is broken. The
+  check now insists on hearing a version number back before believing it.
+
+  And a Python that winget installed a moment ago is not on this application's
+  PATH, because that was captured when the application started - so its own
+  successful install looked like a failure, and the advice was to go away and
+  come back. It now also looks where installers actually put Python:
+  `Programs\Python`, `Program Files`, and the newer install manager's
+  `pythoncore-3.14-64` style folders.
+
+- **Installing into a system-wide Python.** Where Python was installed for all
+  users, this account cannot write to it and pip refuses. That is now retried
+  as an install for the current user only, which always can.
+
+### Changed
+- The .exe genuinely stands alone: it needs no source zip and no unzipping.
+  Given a PC with nothing on it, it finds or installs Python, installs esdeck
+  itself, and gets on with the job. Python is still a real installation on the
+  machine rather than something hidden inside the .exe - that is deliberate, it
+  is what makes updates and repairs possible - but nothing is asked of you.
+
 ## [0.17.0] - 2026-08-23
 
 ### Fixed

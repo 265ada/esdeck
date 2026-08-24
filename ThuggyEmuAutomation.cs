@@ -369,23 +369,85 @@ namespace ThuggyEmuAutomation
 
         // ------------------------------------------------------------ esdeck
 
+        /// <summary>Find a usable Python.
+        ///
+        /// PATH alone is not enough on a machine being set up for the first
+        /// time. Two things get in the way. Windows 11 ships a stub at
+        /// python.exe that only opens the Microsoft Store, so a name being
+        /// found says nothing about it working. And a Python installed a
+        /// moment ago by winget is not on this process's PATH, which was
+        /// captured when the application started - so the install appears to
+        /// have failed when it plainly succeeded.
+        ///
+        /// So: try the names, then look where installers actually put it.
+        /// </summary>
         private string Python()
         {
             foreach (string candidate in new string[] { "python", "py" })
+                if (PythonWorks(candidate)) return candidate;
+
+            foreach (string path in LikelyPythons())
+                if (PythonWorks(path)) return path;
+
+            return null;
+        }
+
+        private bool PythonWorks(string exe)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(exe, "--version");
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                Process p = Process.Start(psi);
+                string said = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+                p.WaitForExit(8000);
+                // The Store stub exits non-zero and says nothing useful; a real
+                // Python prints its version. Insist on hearing the version.
+                return p.ExitCode == 0 && said.IndexOf("Python 3") >= 0;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Where Windows installers actually leave python.exe.</summary>
+        private List<string> LikelyPythons()
+        {
+            List<string> found = new List<string>();
+            string local = Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData);
+            List<string> roots = new List<string>();
+            roots.Add(Path.Combine(local, "Programs\\Python"));   // python.org
+            roots.Add(Path.Combine(local, "Python"));             // install manager
+            roots.Add(Environment.GetFolderPath(
+                Environment.SpecialFolder.ProgramFiles));
+            // SpecialFolder.ProgramFilesX86 is not in the .NET 2.0 enum the
+            // shipped compiler references; the variable is always set.
+            string x86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)");
+            if (!string.IsNullOrEmpty(x86)) roots.Add(x86);
+
+            foreach (string root in roots)
             {
                 try
                 {
-                    ProcessStartInfo psi = new ProcessStartInfo(candidate, "--version");
-                    psi.UseShellExecute = false;
-                    psi.CreateNoWindow = true;
-                    psi.RedirectStandardOutput = true;
-                    Process p = Process.Start(psi);
-                    p.WaitForExit(4000);
-                    if (p.ExitCode == 0) return candidate;
+                    if (!Directory.Exists(root)) continue;
+                    foreach (string dir in Directory.GetDirectories(root))
+                    {
+                        string name = Path.GetFileName(dir).ToLowerInvariant();
+                        // "Python312", and "pythoncore-3.14-64" from the newer
+                        // Python install manager.
+                        if (!name.StartsWith("python")) continue;
+                        string exe = Path.Combine(dir, "python.exe");
+                        if (File.Exists(exe)) found.Add(exe);
+                    }
                 }
                 catch { }
             }
-            return null;
+            // Newest last-installed first: the names sort usefully enough.
+            found.Sort();
+            found.Reverse();
+            return found;
         }
 
         private string RunAndRead(string arguments)
@@ -770,10 +832,22 @@ namespace ThuggyEmuAutomation
             // so nothing needs downloading or unzipping by hand.
             bool local = File.Exists(Path.Combine(appDir, "pyproject.toml"));
             string target = local ? "\"" + appDir.TrimEnd('\\') + "\"" : SourceZip;
-            RunProcess(py, "-m pip install --upgrade --disable-pip-version-check "
-                       + target,
-                       "pip install " + (local ? "(the folder beside this app)"
-                                               : "esdeck from GitHub"));
+            string what = local ? "(the folder beside this app)"
+                                : "esdeck from GitHub";
+            int code = RunProcess(py,
+                "-m pip install --upgrade --disable-pip-version-check " + target,
+                "pip install " + what);
+            if (code != 0 && !cancelled)
+            {
+                // A Python installed for everyone lives somewhere this account
+                // cannot write to. Installing just for this user always can.
+                Append("");
+                Append("That Python is installed system-wide. Trying again just "
+                       + "for you...");
+                RunProcess(py,
+                    "-m pip install --user --upgrade --disable-pip-version-check "
+                    + target, "pip install --user " + what);
+            }
             Append("");
             if (EsdeckWorks(py))
             {
