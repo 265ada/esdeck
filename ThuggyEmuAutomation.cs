@@ -47,6 +47,7 @@ namespace ThuggyEmuAutomation
         private Button cancelButton, backButton;
         private string appDir;
         private bool hasBackground;
+        private Image backdrop;
 
         private delegate void DoneHandler(int lastCode);
         private DoneHandler onDone;              // runs on the UI thread after a job
@@ -152,9 +153,10 @@ namespace ThuggyEmuAutomation
 
             int by = y + 8;
             AddSmall("Change icon", 24, by, OnIcon);
-            AddSmall("Change background", 186, by, OnBackground);
-            AddSmall("Open games folder", 372, by, OnOpenFolder);
-            AddSmall("Check for updates", 558, by, OnUpdate);
+            AddSmall("Change background", 164, by, OnBackground);
+            AddSmall("Open games folder", 304, by, OnOpenFolder);
+            AddSmall("Export logs", 444, by, OnExportLogs);
+            AddSmall("Check for updates", 584, by, OnUpdate);
         }
 
         private void AddAction(string text, string hint, ref int y, EventHandler onClick)
@@ -188,7 +190,7 @@ namespace ThuggyEmuAutomation
         {
             Button b = new Button();
             b.Text = text;
-            b.SetBounds(x, y, 162, 30);
+            b.SetBounds(x, y, 128, 30);
             b.FlatStyle = FlatStyle.Flat;
             b.FlatAppearance.BorderSize = 1;
             b.FlatAppearance.BorderColor = Color.FromArgb(70, 84, 110);
@@ -319,8 +321,7 @@ namespace ThuggyEmuAutomation
                 {
                     using (FileStream fs = new FileStream(path, FileMode.Open,
                                                           FileAccess.Read))
-                        BackgroundImage = Image.FromStream(fs);
-                    BackgroundImageLayout = ImageLayout.Zoom;
+                        backdrop = Image.FromStream(fs);
                     hasBackground = true;
                     return;
                 }
@@ -333,8 +334,7 @@ namespace ThuggyEmuAutomation
                 {
                     if (st != null)
                     {
-                        BackgroundImage = Image.FromStream(st);
-                        BackgroundImageLayout = ImageLayout.Zoom;
+                        backdrop = Image.FromStream(st);
                         hasBackground = true;
                     }
                 }
@@ -345,7 +345,20 @@ namespace ThuggyEmuAutomation
         protected override void OnPaintBackground(PaintEventArgs e)
         {
             base.OnPaintBackground(e);
-            if (!hasBackground) return;
+            if (!hasBackground || backdrop == null) return;
+
+            // Cover, not fit. The poster is tall and the window is not, so
+            // fitting it inside leaves it as a narrow strip down the middle
+            // with dead space either side. Scale to cover and crop the
+            // overflow, which is what a wallpaper is expected to do.
+            float sx = (float)ClientSize.Width / backdrop.Width;
+            float sy = (float)ClientSize.Height / backdrop.Height;
+            float scale = sx > sy ? sx : sy;
+            int w = (int)Math.Ceiling(backdrop.Width * scale);
+            int h = (int)Math.Ceiling(backdrop.Height * scale);
+            e.Graphics.DrawImage(backdrop, (ClientSize.Width - w) / 2,
+                                 (ClientSize.Height - h) / 2, w, h);
+
             // Artwork interesting enough to look at is too busy to read over.
             using (SolidBrush scrim = new SolidBrush(Color.FromArgb(214, 16, 20, 30)))
                 e.Graphics.FillRectangle(scrim, 0, 72, ClientSize.Width,
@@ -598,9 +611,6 @@ namespace ThuggyEmuAutomation
         private void Run(string what, string[] steps, DoneHandler done)
         {
             if (busy) return;
-            string py = Python();
-            if (py == null) { NoPython(); return; }
-
             ShowOutput(what);
             busy = true;
             cancelled = false;
@@ -609,6 +619,18 @@ namespace ThuggyEmuAutomation
 
             worker = new Thread(delegate ()
             {
+                Append("=== " + what + " ===");
+                Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                Append("");
+
+                string py = Python();
+                if (!EnsureReady(ref py))
+                {
+                    lastCode = 1;
+                    Finished();
+                    return;
+                }
+
                 foreach (string step in steps)
                 {
                     if (cancelled) break;
@@ -629,6 +651,139 @@ namespace ThuggyEmuAutomation
             });
             worker.IsBackground = true;
             worker.Start();
+        }
+
+        // ------------------------------------------------- making it runnable
+
+        //: pip understands a URL to a zip of the repo, so nothing has to be
+        //: downloaded or unzipped by hand.
+        private const string SourceZip =
+            "https://github.com/265ada/esdeck/archive/refs/heads/master.zip";
+
+        /// <summary>Run any program, streaming its output into the window.</summary>
+        private int RunProcess(string exe, string arguments, string display)
+        {
+            Append("> " + display);
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(exe, arguments);
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.StandardOutputEncoding = Encoding.UTF8;
+                psi.StandardErrorEncoding = Encoding.UTF8;
+                psi.WorkingDirectory = appDir;
+                psi.EnvironmentVariables["PYTHONSAFEPATH"] = "1";
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+
+                current = new Process();
+                current.StartInfo = psi;
+                current.OutputDataReceived += delegate (object s, DataReceivedEventArgs e)
+                {
+                    if (e.Data != null) Append(e.Data);
+                };
+                current.ErrorDataReceived += delegate (object s, DataReceivedEventArgs e)
+                {
+                    if (e.Data != null) Append(e.Data);
+                };
+                current.Start();
+                current.BeginOutputReadLine();
+                current.BeginErrorReadLine();
+                current.WaitForExit();
+                int code = current.ExitCode;
+                current = null;
+                return code;
+            }
+            catch (Exception ex)
+            {
+                Append("  could not run that: " + ex.Message);
+                return -1;
+            }
+        }
+
+        /// <summary>Whether esdeck can actually be imported by this Python.</summary>
+        private bool EsdeckWorks(string py)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(py, "-m esdeck --version");
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.WorkingDirectory = appDir;
+                psi.EnvironmentVariables["PYTHONSAFEPATH"] = "1";
+                Process p = Process.Start(psi);
+                p.StandardOutput.ReadToEnd();
+                p.StandardError.ReadToEnd();
+                p.WaitForExit(30000);
+                return p.ExitCode == 0;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Put Python and esdeck in place before anything needs them.
+        ///
+        /// Every action here is "python -m esdeck ...", so if either is absent
+        /// each step fails identically and the whole run reports nothing but
+        /// "No module named esdeck" - which says what is missing but not what
+        /// to do about it, and leaves nothing installed. This installs them.
+        /// </summary>
+        private bool EnsureReady(ref string py)
+        {
+            if (py == null)
+            {
+                Append("Python is not installed on this PC. Installing it now -");
+                Append("this takes a few minutes and needs an internet connection.");
+                Append("");
+                RunProcess("winget", "install --id Python.Python.3.12 -e "
+                    + "--accept-package-agreements --accept-source-agreements "
+                    + "--disable-interactivity",
+                    "winget install Python");
+                Append("");
+                py = Python();
+                if (py == null)
+                {
+                    Append("Python still is not there. Two things usually explain it:");
+                    Append("  - winget is missing (Windows 10 before 1809), or");
+                    Append("  - a new terminal is needed before PATH picks it up.");
+                    Append("");
+                    Append("Install Python from https://www.python.org/downloads/,");
+                    Append("tick \"Add python.exe to PATH\", then start this again.");
+                    return false;
+                }
+            }
+            Append("Python: found.");
+
+            if (EsdeckWorks(py))
+            {
+                Append("esdeck: installed.");
+                Append("");
+                return true;
+            }
+
+            Append("esdeck is not installed for this Python yet. Installing it now...");
+            Append("");
+            // A source folder beside the .exe is preferred - it is what the
+            // person in front of us actually has - and GitHub is the fallback,
+            // so nothing needs downloading or unzipping by hand.
+            bool local = File.Exists(Path.Combine(appDir, "pyproject.toml"));
+            string target = local ? "\"" + appDir.TrimEnd('\\') + "\"" : SourceZip;
+            RunProcess(py, "-m pip install --upgrade --disable-pip-version-check "
+                       + target,
+                       "pip install " + (local ? "(the folder beside this app)"
+                                               : "esdeck from GitHub"));
+            Append("");
+            if (EsdeckWorks(py))
+            {
+                Append("esdeck: installed.");
+                Append("");
+                return true;
+            }
+            Append("esdeck could not be installed automatically. The pip output");
+            Append("above says why. Nothing else has been changed.");
+            return false;
         }
 
         private int RunStep(string py, string step)
@@ -847,6 +1002,20 @@ namespace ThuggyEmuAutomation
                 return;
             }
             Process.Start("explorer.exe", "\"" + folder + "\"");
+        }
+
+        private void OnExportLogs(object sender, EventArgs e)
+        {
+            // Every run writes a transcript; this collects the lot into one
+            // zip, which is the thing worth sending on when something needs
+            // explaining after the fact.
+            FolderBrowserDialog dlg = new FolderBrowserDialog();
+            dlg.Description = "Where should the log bundle be saved?";
+            dlg.SelectedPath = Environment.GetFolderPath(
+                Environment.SpecialFolder.DesktopDirectory);
+            if (dlg.ShowDialog() != DialogResult.OK) return;
+            Run("Exporting logs", new string[] {
+                "logs --export \"" + dlg.SelectedPath.TrimEnd('\\') + "\"" });
         }
 
         private void OnUpdate(object sender, EventArgs e)

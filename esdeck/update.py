@@ -17,6 +17,8 @@ import os
 import re
 import shutil
 import subprocess
+
+from . import proc as proc_mod
 import sys
 import tempfile
 import time
@@ -226,7 +228,7 @@ def download_and_install(*, bat_dir: Path | None = None, log=print) -> bool:
         src = roots[0]
 
         log("  installing...")
-        proc = subprocess.run(
+        proc = proc_mod.run(
             [sys.executable, "-m", "pip", "install", str(src),
              "--quiet", "--disable-pip-version-check"],
             capture_output=True, text=True, timeout=900)

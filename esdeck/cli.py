@@ -39,7 +39,8 @@ from . import drives as drives_mod
 from . import emulators as emu_mod
 from . import history as history_mod
 from . import icon as icon_mod
-from . import launcher, plan as plan_mod
+from . import launcher, logs as logs_mod, plan as plan_mod
+from . import proc as proc_mod
 from . import progress as progress_mod
 from . import scan as scan_mod
 from . import tidy as tidy_mod
@@ -635,6 +636,39 @@ def cmd_clean(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------- logs
+def cmd_logs(args) -> int:
+    """List the recorded runs, or bundle them up for analysis."""
+    if args.export is not None:
+        dest = Path(args.export) if args.export else Path.home() / "Desktop"
+        try:
+            out, count, size = logs_mod.export(dest)
+        except OSError as exc:
+            _p(f"could not write the export: {exc}")
+            return 2
+        _p(f"Exported {count} run(s) to:")
+        _p(f"  {out}")
+        _p(f"  {progress_mod.human_bytes(size)}")
+        return 0
+
+    found = logs_mod.entries()
+    if not found:
+        _p("No runs recorded yet. Every command from here on writes one.")
+        return 0
+    _p(f"{len(found)} run(s) recorded in {logs_mod.LOG_DIR}:")
+    for f in found[:args.limit]:
+        try:
+            size = f.stat().st_size
+        except OSError:
+            size = 0
+        _p(f"  {f.name:<44} {progress_mod.human_bytes(size)}")
+    if len(found) > args.limit:
+        _p(f"  ... and {len(found) - args.limit} more")
+    _p("")
+    _p("esdeck logs --export         bundles them all into a zip on the Desktop")
+    return 0
+
+
 # ------------------------------------------------------------------- drives
 def cmd_drives(args) -> int:
     """List drives and how much room they have, for choosing where games live."""
@@ -729,7 +763,6 @@ def _desktop() -> Path:
 def make_shortcut(link: Path, target: Path, icon_path: Path | None = None,
                   *, log=print) -> bool:
     """A .lnk on the Desktop. Batch files cannot carry an icon; shortcuts can."""
-    import subprocess
     ps = (
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{link}');"
         "$s.TargetPath = '{target}';"
@@ -742,7 +775,7 @@ def make_shortcut(link: Path, target: Path, icon_path: Path | None = None,
              icon=(f"$s.IconLocation = '{str(icon_path).replace(chr(39), chr(39)*2)}';"
                    if icon_path else ""))
     try:
-        proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+        proc = proc_mod.run(["powershell", "-NoProfile", "-Command", ps],
                               capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as exc:
         log(f"  {exc}")
@@ -1320,6 +1353,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="verify by size only instead of hashing the contents")
     p.set_defaults(func=cmd_clean)
 
+    p = sub.add_parser("logs", help="show or export the record of past runs")
+    p.add_argument("--export", nargs="?", const="", metavar="FOLDER",
+                   help="bundle every log into a zip (default: your Desktop)")
+    p.add_argument("--limit", type=int, default=20,
+                   help="how many runs to list (default 20)")
+    p.set_defaults(func=cmd_logs)
+
     p = sub.add_parser("drives", help="show drives and free space")
     p.add_argument("--suggest", action="store_true",
                    help="print only the suggested folder, for scripts")
@@ -1433,6 +1473,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     _utf8_console()
     args = build_parser().parse_args(argv)
+    # Record what this run does, so a sort left going overnight can still be
+    # accounted for afterwards. Exporting the logs is itself not worth a log.
+    label = " ".join(argv if argv is not None else sys.argv[1:])
+    restore = (lambda: None)
+    if getattr(args, "func", None) is not cmd_logs:
+        restore, _dest = logs_mod.start(label)
     try:
         return args.func(args)
     except KeyboardInterrupt:
@@ -1440,6 +1486,8 @@ def main(argv=None) -> int:
     except FileNotFoundError as exc:
         _p(f"error: {exc}")
         return 2
+    finally:
+        restore()
 
 
 if __name__ == "__main__":

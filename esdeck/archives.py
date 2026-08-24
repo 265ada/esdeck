@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+
+from . import proc as proc_mod
 import zipfile
 from functools import lru_cache
 from pathlib import Path
@@ -93,7 +95,7 @@ def _list_with_7z(path: Path) -> list[str] | None:
     if exe is None:
         return None
     try:
-        proc = subprocess.run([exe, "l", "-slt", "-ba", str(path)],
+        proc = proc_mod.run([exe, "l", "-slt", "-ba", str(path)],
                               capture_output=True, text=True, timeout=TIMEOUT,
                               errors="replace")
     except (OSError, subprocess.SubprocessError):
@@ -154,7 +156,7 @@ def extract(path, dest, *, log=print) -> int:
                            f"'esdeck bootstrap --packages 7zip --yes'")
 
     before = sum(1 for _ in dest.rglob("*") if _.is_file())
-    proc = subprocess.run(
+    proc = proc_mod.run(
         [exe, "x", str(path), f"-o{dest}", "-y", "-bso0", "-bsp0"],
         capture_output=True, text=True, timeout=TIMEOUT, errors="replace")
     if proc.returncode != 0:

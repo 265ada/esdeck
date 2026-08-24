@@ -17,6 +17,7 @@ from . import systems as sysmod
 from . import readme_parse
 from . import sniff
 from . import archives
+from . import proc as proc_mod
 from . import patch as patch_mod
 
 MAX_DEPTH = 6
@@ -306,7 +307,7 @@ def _read_member(archive: Path, name: str) -> bytes | None:
         return None
     import subprocess
     try:
-        proc = subprocess.run([exe, "e", "-so", str(archive), name, "-y"],
+        proc = proc_mod.run([exe, "e", "-so", str(archive), name, "-y"],
                               capture_output=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
         return None

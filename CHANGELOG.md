@@ -6,6 +6,58 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.17.0] - 2026-08-23
+
+### Fixed
+- **"No module named esdeck" - every step failing, nothing installed.** This
+  was a regression introduced in 0.15.0 and it is my fault. That release told
+  Python to ignore the working directory when importing, to stop a stray copy
+  of the source shadowing the installed package. On a PC where esdeck had never
+  been pip-installed, that adjacent source folder *was* the only copy - so the
+  change made it invisible, and every action failed identically. No ES-DE, no
+  RetroArch, no cores, no games folder: all of it followed from that one line.
+
+  **The application now installs its own prerequisites.** Before running
+  anything it checks for Python and installs it through winget if it is
+  missing, then checks that esdeck can actually be imported and installs it if
+  not - from the folder beside the .exe when there is one, and straight from
+  GitHub when there is not. Nothing has to be downloaded or unzipped by hand.
+  If it cannot fix things it says which part failed and what to do, rather than
+  repeating the same error five times.
+
+- **Console windows stopped appearing.** Nine places started a program - 7-Zip,
+  winget, tasklist, pip, powershell - and none of them suppressed the window. A
+  process with no console of its own is given a *new* console for each console
+  child, so these appeared over whatever you were doing, and one could be closed
+  mid-extraction by a stray click. That is the thing the application existed to
+  prevent. Every one now goes through a single helper that passes
+  CREATE_NO_WINDOW, and a test fails the build if a new call site skips it.
+
+- **The background fills the window again.** It was being fitted inside the
+  window rather than covering it, and the artwork is tall where the window is
+  not - so it sat as a narrow strip down the middle with dead space either
+  side. It is now scaled to cover and cropped, the way a wallpaper should be.
+
+### Added
+- **A log of every run, and a button to export the lot.** Each command writes a
+  transcript as it happens - the same text that appeared on screen, timestamped
+  and kept - including the runs nobody is watching. When something comes out
+  wrong afterwards, the question is always "what did it actually do", and that
+  deserves a record rather than a memory of a window that has since scrolled
+  away.
+
+  *Export logs* bundles every run into a single zip, with a summary of what is
+  in it. `esdeck logs` lists them; `esdeck logs --export` does the same from the
+  command line. The last sixty runs are kept.
+
+  Status lines are unrolled on the way into the file: a progress bar redrawing
+  itself in place is one line on screen and an unreadable smear in a text file.
+
+- **Each run says which button started it.** The transcript now opens with the
+  name of the action and the time it began, so a log read later - or a bundle
+  sent on for someone else to read - identifies itself instead of starting
+  mid-thought.
+
 ## [0.16.0] - 2026-08-23
 
 ### Fixed

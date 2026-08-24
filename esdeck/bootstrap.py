@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+
+from . import proc as proc_mod
 from pathlib import Path
 
 from .config import Config
@@ -44,7 +46,7 @@ def have_winget() -> bool:
 
 def winget_installed(package_id: str) -> bool:
     try:
-        out = subprocess.run(
+        out = proc_mod.run(
             ["winget", "list", "--id", package_id, "--exact",
              "--accept-source-agreements", "--disable-interactivity"],
             capture_output=True, text=True, timeout=120)
@@ -77,7 +79,7 @@ def install_package(key: str, *, dry_run: bool = True, repair: bool = False,
            "--accept-package-agreements", "--accept-source-agreements"]
     if already:
         cmd.append("--force")
-    proc = subprocess.run(cmd, text=True)
+    proc = proc_mod.run(cmd, text=True)
     if proc.returncode != 0:
         log(f"  ERROR  {label}: {_winget_error(proc.returncode)} [{package_id}]")
     return proc.returncode == 0
@@ -103,7 +105,7 @@ def find_es_de() -> Path | None:
 def es_de_running() -> bool:
     """ES-DE overwrites its settings file on exit, so edits need it stopped."""
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq ES-DE.exe", "/NH"],
+        out = proc_mod.run(["tasklist", "/FI", "IMAGENAME eq ES-DE.exe", "/NH"],
                              capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return False
@@ -113,7 +115,7 @@ def es_de_running() -> bool:
 def retroarch_running() -> bool:
     """RetroArch overwrites retroarch.cfg on exit, so edits need it stopped."""
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq retroarch.exe", "/NH"],
+        out = proc_mod.run(["tasklist", "/FI", "IMAGENAME eq retroarch.exe", "/NH"],
                              capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return False
