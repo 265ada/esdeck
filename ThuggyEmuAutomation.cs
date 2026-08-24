@@ -126,7 +126,8 @@ namespace ThuggyEmuAutomation
 
             int y = 4;
             AddAction("Set up this PC",
-                      "Installs ES-DE, RetroArch, every core, and the folders", ref y,
+                      "Installs ES-DE, RetroArch, every core and the folders. "
+                      + "Safe to run again to fix an older setup", ref y,
                       OnSetup);
             AddAction("Sort games",
                       "Files everything in your Incoming folder into the library", ref y,
@@ -599,11 +600,39 @@ namespace ThuggyEmuAutomation
             // "has anyone chosen", which is the only thing that distinguishes
             // a fresh PC from a configured one.
             string configured = RunAndRead("drives --configured");
+            bool alreadySetUp = configured != null && configured.Trim() == "yes";
             string drive = null;
-            if (configured == null || configured.Trim() != "yes")
+            if (!alreadySetUp)
             {
                 drive = ChooseDrive();
                 if (drive == null) return;              // cancelled: change nothing
+            }
+            else
+            {
+                // "Set up this PC" reads like something that undoes a setup
+                // which already works, so on a machine that has one, say
+                // plainly what this does and what it leaves alone. An earlier
+                // version installed far fewer emulator cores, and running this
+                // again is exactly how that gets put right.
+                string where = RunAndRead("drives --rom-dir");
+                if (where == null || where.Length == 0) where = "(not known)";
+                string message =
+                    "This PC is already set up. Running this again checks "
+                    + "everything over and installs whatever is missing - which "
+                    + "is how a PC set up by an older version gets the rest of "
+                    + "its emulator cores."
+                    + "\r\n\r\nIt will:"
+                    + "\r\n   - install anything not already installed"
+                    + "\r\n   - download any emulator cores you do not have"
+                    + "\r\n   - re-check the settings and the controller"
+                    + "\r\n\r\nIt will not touch your games, and will not move "
+                    + "your library:"
+                    + "\r\n   " + where
+                    + "\r\n\r\nCarry on?";
+                if (MessageBox.Show(this, message, "Already set up",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question) != DialogResult.Yes)
+                    return;
             }
 
             List<string> steps = new List<string>();

@@ -6,6 +6,25 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.20.1] - 2026-08-23
+
+### Changed
+- **"Set up this PC" now says what it does on a PC that is already set up.**
+  Running it again was always safe - it has never rewritten the configuration
+  or moved a library on a machine that had one, because the question about
+  which drive, and the step that acts on the answer, only happen when nothing
+  has been configured. But the button reads like something that undoes a setup
+  that already works, and nothing said otherwise.
+
+  On a machine that is already set up it now explains itself first: that it
+  installs anything missing, downloads any cores you do not have, re-checks the
+  settings and the controller, and does not touch your games or move your
+  library - naming the library so you can see which one it means.
+
+  This is the answer to a PC set up by an older version with only a handful of
+  emulator cores: run it again. No separate repair button, because a second
+  button doing the same work is one more thing to explain and to get wrong.
+
 ## [0.20.0] - 2026-08-23
 
 ### Added
