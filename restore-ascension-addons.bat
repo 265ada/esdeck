@@ -70,6 +70,9 @@ if not defined GAMEDIR (
             for /f "delims=" %%F in ('dir /s /b /ad "%%D:\WTF.esdeck-backup" 2^>nul') do (
                 if not defined GAMEDIR set "GAMEDIR=%%~dpF"
             )
+            for /f "delims=" %%F in ('dir /s /b /ad "%%D:\Cache.esdeck-backup" 2^>nul') do (
+                if not defined GAMEDIR set "GAMEDIR=%%~dpF"
+            )
         )
     )
     if defined GAMEDIR if "!GAMEDIR:~-1!"=="\" set "GAMEDIR=!GAMEDIR:~0,-1!"
@@ -120,7 +123,7 @@ if not defined GAMEDIR (
     ) else (
         echo    The game data folder could not be found either. It is the
         echo    folder called ascension-live that contains Interface and
-        echo    WTF - NOT the one inside Launcher\resources.
+        echo    WTF inside it. Either location can be right.
         echo.
         echo    Drag that folder onto this file and run it again.
     )
@@ -135,16 +138,33 @@ echo.
 
 set "HAVE_IF="
 set "HAVE_WTF="
+set "HAVE_CACHE="
 if exist "%GAMEDIR%\Interface.esdeck-backup" set "HAVE_IF=1"
 if exist "%GAMEDIR%\WTF.esdeck-backup" set "HAVE_WTF=1"
+if exist "%GAMEDIR%\Cache.esdeck-backup" set "HAVE_CACHE=1"
 if defined HAVE_IF    echo       Interface   (your addons)
 if defined HAVE_WTF   echo       WTF         (your settings, keybinds, macros)
+if defined HAVE_CACHE echo       Cache       (rebuilt by the game anyway)
 echo.
 
 rem ------------------------------------------------------------- choose
+if not defined HAVE_IF if not defined HAVE_WTF (
+    echo    Only the Cache was set aside - your addons and settings were
+    echo    never touched.
+    echo.
+    echo    The game rebuilds Cache by itself, so there is usually no
+    echo    reason to put the old one back. It is offered because you
+    echo    asked to undo everything.
+    echo.
+    set "ONLYCACHE=1"
+)
 echo    What would you like back?
 echo.
-echo       [1]  Everything - addons and settings        (the usual answer)
+if defined ONLYCACHE (
+    echo       [1]  Put the old Cache back                  (a full revert)
+) else (
+    echo       [1]  Everything back, exactly as it was     (a full revert)
+)
 echo       [2]  Settings only - leave the addons out
 echo       [3]  Addons only - keep the current settings
 echo       [4]  Nothing, close this
@@ -162,7 +182,8 @@ if "!PICK!"=="" goto :done
 
 set "DO_IF="
 set "DO_WTF="
-if "!PICK!"=="1" set "DO_IF=1" & set "DO_WTF=1"
+set "DO_CACHE="
+if "!PICK!"=="1" set "DO_IF=1" & set "DO_WTF=1" & set "DO_CACHE=1"
 if "!PICK!"=="2" set "DO_WTF=1"
 if "!PICK!"=="3" set "DO_IF=1"
 
@@ -173,14 +194,18 @@ if not defined DO_IF if not defined DO_WTF (
 )
 
 echo.
-if defined DO_IF  call :restore "%GAMEDIR%\Interface" Interface "your addons"
-if defined DO_WTF call :restore "%GAMEDIR%\WTF" WTF "your settings"
+if defined DO_IF    call :restore "%GAMEDIR%\Interface" Interface "your addons are back"
+if defined DO_WTF   call :restore "%GAMEDIR%\WTF" WTF "your settings are back"
+rem Cache only on a full revert. It is rebuilt by the game either way, and a
+rem corrupt one is a common cause of the crash - so putting it back is only
+rem right when the point is to undo everything.
+if defined DO_CACHE call :restore "%GAMEDIR%\Cache" Cache "the old cache is back"
 
 rem ---------------------------------------------------- keep the DX11 fix
 rem Restoring the old WTF brings back the old Config.wtf, which will not have
 rem the DirectX 11 setting. That setting is a plain improvement on the
 rem hardware where #132 happens, and is not the part anyone wants undone.
-if defined DO_WTF (
+if defined DO_WTF if not defined DO_CACHE (
     set "CFG=%GAMEDIR%\WTF\Config.wtf"
     if exist "!CFG!" (
         findstr /i /c:"gxApi" "!CFG!" >nul 2>&1
@@ -220,13 +245,14 @@ rem --------------------------------------------------------------- helpers
 rem Does this folder hold something we set aside?
 if exist "%~1\Interface.esdeck-backup" set "GAMEDIR=%~1"
 if exist "%~1\WTF.esdeck-backup" set "GAMEDIR=%~1"
+rem Cache counts too. Stopping at the addons question, or answering no to it,
+rem leaves Cache as the only thing that was moved.
+if exist "%~1\Cache.esdeck-backup" set "GAMEDIR=%~1"
 goto :eof
 
 :checkdata
 rem Is this the game data root? Interface and WTF live here - Ascension.exe
 rem does not, and looking for the .exe is what sent us to the wrong folder.
-echo %~1 | find /i "\Launcher\" >nul 2>&1
-if not errorlevel 1 goto :eof
 if exist "%~1\Interface" set "DATADIR=%~1"
 if exist "%~1\WTF" set "DATADIR=%~1"
 if exist "%~1\Data" set "DATADIR=%~1"
@@ -263,7 +289,7 @@ if exist "%LIVE%" (
 )
 move "%BACK%" "%LIVE%" >nul 2>&1
 if exist "%LIVE%" (
-    echo         %~2 restored  -  %~3 are back
+    echo         %~2 restored  -  %~3
 ) else (
     echo         could not restore %~2 - is the game running?
 )

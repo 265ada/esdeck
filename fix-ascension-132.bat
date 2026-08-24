@@ -73,9 +73,11 @@ if not defined GAMEDIR (
     echo       Find the folder holding your Interface and WTF folders -
     echo       usually named ascension-live, for example:
     echo         C:\ascension-live
+    echo       or
+    echo         C:\Ascension\Launcher\resources\ascension-live
     echo.
-    echo       NOT the one inside Launcher\resources - that is the
-    echo       launcher's own copy and holds none of your settings.
+    echo       Either can be right - it is the one with Interface and
+    echo       WTF inside it that matters, not where it sits.
     echo.
     echo       Then drag that folder onto this file and run it again.
     echo.
@@ -302,6 +304,10 @@ rem data sits in a folder like C:\ascension-live.
 for %%R in (
     "%SystemDrive%\ascension-live"
     "C:\ascension-live"
+    "%SystemDrive%\Ascension\Launcher\resources\ascension-live"
+    "C:\Ascension\Launcher\resources\ascension-live"
+    "D:\Ascension\Launcher\resources\ascension-live"
+    "%LOCALAPPDATA%\Ascension\Launcher\resources\ascension-live"
     "D:\ascension-live"
     "E:\ascension-live"
     "F:\ascension-live"
@@ -331,13 +337,12 @@ goto :eof
 :isdata
 rem Interface, WTF and Cache are the game's own folders. Requiring one of them
 rem keeps us out of the launcher's copy, which has none of them.
-rem Refuse the launcher's own copy outright. It is an Electron app: it has
-rem a Cache folder, which is why "has a Cache" used to be enough to fool this.
-echo %~1 | find /i "\Launcher\" >nul 2>&1
-if not errorlevel 1 goto :eof
-
-rem Interface, WTF and Data are the game client's own folders, and the
-rem launcher's copy has none of them. Cache proves nothing.
+rem Judged by contents, never by path. The client sometimes does live under
+rem Launcher\resources, so ruling that out by name locks us out of the very
+rem folder that needs the work.
+rem
+rem Interface, WTF and Data are the game's own folders. The launcher's copy
+rem has a Cache folder and none of these, so Cache proves nothing on its own.
 if exist "%~1\Interface" set "GAMEDIR=%~1"
 if exist "%~1\WTF" set "GAMEDIR=%~1"
 if exist "%~1\Data" set "GAMEDIR=%~1"
