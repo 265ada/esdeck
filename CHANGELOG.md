@@ -6,6 +6,16 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.19.1] - 2026-08-23
+
+### Changed
+- The drive question now offers removable drives too, and names each volume.
+  An external drive is an ordinary place to keep a collection this size, and
+  listing only internal ones would have hidden the very drive someone bought
+  for the job. A removable drive is never chosen as the default, though - it
+  can be unplugged, and a library that disappears is worse than a smaller one
+  that stays put.
+
 ## [0.19.0] - 2026-08-23
 
 ### Fixed

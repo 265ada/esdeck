@@ -492,7 +492,13 @@ namespace ThuggyEmuAutomation
                 {
                     try
                     {
-                        if (d.DriveType == DriveType.Fixed && d.IsReady)
+                        // Fixed and removable both: an external drive is a
+                        // perfectly ordinary place to keep a collection this
+                        // size, and excluding it would hide the very drive
+                        // someone bought for the job. Network drives are left
+                        // out - a library over the network is its own problem.
+                        if (d.IsReady && (d.DriveType == DriveType.Fixed
+                                          || d.DriveType == DriveType.Removable))
                             usable.Add(d);
                     }
                     catch { }
@@ -503,9 +509,23 @@ namespace ThuggyEmuAutomation
 
             // Default to the roomiest drive: that is what a large collection
             // needs, and it is right far more often than "wherever Windows is".
-            DriveInfo best = usable[0];
+            DriveInfo best = null;
             foreach (DriveInfo d in usable)
-                if (d.AvailableFreeSpace > best.AvailableFreeSpace) best = d;
+            {
+                if (d.DriveType != DriveType.Fixed) continue;
+                if (best == null || d.AvailableFreeSpace > best.AvailableFreeSpace)
+                    best = d;
+            }
+            // Only fall back to a removable drive if there is nothing else: it
+            // can be unplugged, and a library that disappears is worse than a
+            // smaller one that stays put. It is still offered - just not
+            // chosen on someone's behalf.
+            if (best == null)
+            {
+                best = usable[0];
+                foreach (DriveInfo d in usable)
+                    if (d.AvailableFreeSpace > best.AvailableFreeSpace) best = d;
+            }
 
             Form dlg = new Form();
             dlg.Text = "Where should your games live?";
@@ -535,6 +555,13 @@ namespace ThuggyEmuAutomation
                 double totalGb = d.TotalSize / 1073741824.0;
                 string label = d.Name + "   " + freeGb.ToString("0") + " GB free of "
                              + totalGb.ToString("0") + " GB";
+                try
+                {
+                    if (!string.IsNullOrEmpty(d.VolumeLabel))
+                        label += "   " + d.VolumeLabel;
+                }
+                catch { }
+                if (d.DriveType == DriveType.Removable) label += "   (removable)";
                 if (d.Name == best.Name) label += "      (most room)";
                 list.Items.Add(label);
                 if (d.Name == best.Name) list.SelectedIndex = list.Items.Count - 1;
