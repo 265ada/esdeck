@@ -228,9 +228,11 @@ echo.
 echo      4. Send the report on your Desktop to whoever is helping:
 echo         %REPORT%
 echo.
-echo    To undo anything this did: go to
-echo      %GAMEDIR%
-echo    and rename the .esdeck-backup folders back to their old names.
+echo    To get your addons and settings back, run
+echo      restore-ascension-addons.bat
+echo    which lives beside this file. It puts back everything that was
+echo    set aside, and can give you the settings without the addons if
+echo    an addon turns out to have been the problem.
 echo.
 echo  ===========================================================
 echo.
