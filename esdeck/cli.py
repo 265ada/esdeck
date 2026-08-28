@@ -857,6 +857,11 @@ def cmd_update(args) -> int:
         return 0
     if not found.newer:
         _p(f"  already up to date ({found.current}).")
+        # The package being current says nothing about the application beside
+        # it. A package-only update leaves the two out of step, and that is
+        # exactly the state where nothing would otherwise be checked.
+        if args.bat_dir:
+            update_mod.refresh_exe(Path(args.bat_dir), log=_p)
         return 0
 
     _p("")

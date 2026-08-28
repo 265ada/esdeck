@@ -6,6 +6,15 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.22.1] - 2026-08-28
+
+### Fixed
+- **"Already up to date" skipped the application.** Checking for updates
+  returned early when the package matched, and the application beside it was
+  never looked at - which is precisely the state a package-only update leaves
+  behind, and the one worth checking. A stale application is now replaced even
+  when there is no new version of the code to fetch.
+
 ## [0.22.0] - 2026-08-28
 
 ### Fixed
