@@ -17,12 +17,20 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import archives, systems as sysmod
+
 CHUNK = 1 << 20
 
 
 def _human(n: int) -> str:
     from .progress import human_bytes
     return human_bytes(n)
+
+
+#: How much of an archive has to be present before it counts as installed.
+#: Not all of it: a set can lose a file to a name clash or a skipped duplicate,
+#: and demanding perfection would keep archives that are plainly installed.
+INSTALLED_RATIO = 0.9
 
 
 @dataclass
@@ -71,6 +79,26 @@ def same_file(a: Path, b: Path, *, quick: bool = False) -> bool:
         return file_hash(a) == file_hash(b)
     except OSError:
         return False
+
+
+def archive_is_installed(path: Path, index: dict) -> tuple:
+    """(installed?, matched, total) judged by what the archive contains.
+
+    Artwork is ignored: esdeck never files it, so counting it would stop any
+    archive containing box art from ever looking installed.
+    """
+    try:
+        names = archives.members(path)
+    except OSError:
+        return False, 0, 0
+    if not names:
+        return False, 0, 0
+    wanted = [Path(n).name for n in names if n and not n.endswith("/")]
+    wanted = [n for n in wanted if n and not sysmod.is_media(Path(n))]
+    if not wanted:
+        return False, 0, 0
+    matched = sum(1 for n in wanted if n.lower() in index)
+    return (matched / len(wanted)) >= INSTALLED_RATIO, matched, len(wanted)
 
 
 def _library_index(roots) -> dict:
@@ -123,17 +151,36 @@ def survey(source_dirs, library_roots, *, quick: bool = False,
                 if progress is not None:
                     progress.advance(items=1, nbytes=size, label=fn)
                 matches = index.get(fn.lower(), [])
+                twin = next((m for m in matches
+                             if same_file(src, m, quick=quick)), None)
+                if twin is not None:
+                    report.safe.append(Candidate(src, twin, size, True))
+                    continue
+
+                # No byte-for-byte twin. For an archive that is expected:
+                # it was unpacked, so nothing in the library resembles it.
+                # What it contains answers the question instead.
+                if archives.is_later_volume(src):
+                    # A volume of a set - its first part speaks for all of it.
+                    report.unmatched.append(
+                        Candidate(src, Path(), size, False,
+                                  "part of a split archive"))
+                    continue
+                if archives.is_archive(src):
+                    installed, got, total = archive_is_installed(src, index)
+                    if installed:
+                        report.safe.append(Candidate(
+                            src, Path(), size, True,
+                            f"all {total} file(s) inside are in the library"))
+                        continue
+
                 if not matches:
                     report.unmatched.append(
                         Candidate(src, Path(), size, False, "not in the library"))
-                    continue
-                twin = next((m for m in matches if same_file(src, m, quick=quick)), None)
-                if twin is None:
+                else:
                     report.mismatched.append(
                         Candidate(src, matches[0], size, False,
                                   "same name in the library but different content"))
-                else:
-                    report.safe.append(Candidate(src, twin, size, True))
     return report
 
 
@@ -141,7 +188,8 @@ def purge(report: Report, *, dry_run: bool = True, log=print) -> tuple[int, int]
     """Delete the verified duplicates. Returns (files removed, bytes freed)."""
     removed = freed = 0
     for c in report.safe:
-        log(f"  remove {c.source.name}  ({_human(c.size)})")
+        why = f"  -  {c.reason}" if c.reason else ""
+        log(f"  remove {c.source.name}  ({_human(c.size)}){why}")
         if dry_run:
             removed += 1
             freed += c.size

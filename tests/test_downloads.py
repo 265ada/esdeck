@@ -112,3 +112,68 @@ class FolderTests(unittest.TestCase):
         if found is None:
             self.skipTest("no Downloads folder on this machine")
         self.assertTrue(found.is_dir())
+
+
+class DropFolderArchiveTests(unittest.TestCase):
+    """The drop folder has to answer the same question the same way.
+
+    An archive is unpacked on the way in, so nothing in the library is ever
+    identical to it. Comparing content never matched one, and every archive in
+    the drop folder was reported "not in the library" and kept - while the
+    identical download was correctly identified as installed and removed. The
+    same file, two opposite answers, in one run.
+    """
+
+    def setUp(self):
+        from esdeck import clean
+        self.clean = clean
+        self._dir = tempfile.TemporaryDirectory()
+        root = Path(self._dir.name)
+        self.inc = root / "Incoming"
+        self.lib = root / "ROMs"
+        self.inc.mkdir()
+        (self.lib / "3ds").mkdir(parents=True)
+
+    def tearDown(self):
+        self._dir.cleanup()
+
+    def _safe(self):
+        report = self.clean.survey([self.inc], [self.lib])
+        return {c.source.name for c in report.safe}
+
+    def test_an_unpacked_archive_is_recognised(self):
+        (self.lib / "3ds" / "Omega Ruby.3ds").write_bytes(b"r" * 9000)
+        with zipfile.ZipFile(self.inc / "Omega Ruby (USA).zip", "w") as zf:
+            zf.writestr("Omega Ruby.3ds", "r" * 9000)
+        self.assertEqual(self._safe(), {"Omega Ruby (USA).zip"})
+
+    def test_it_says_why(self):
+        (self.lib / "3ds" / "A.3ds").write_bytes(b"a" * 900)
+        with zipfile.ZipFile(self.inc / "Pack.zip", "w") as zf:
+            zf.writestr("A.3ds", "a" * 900)
+        report = self.clean.survey([self.inc], [self.lib])
+        self.assertIn("inside", report.safe[0].reason)
+
+    def test_an_archive_that_was_never_sorted_is_kept(self):
+        with zipfile.ZipFile(self.inc / "New.zip", "w") as zf:
+            zf.writestr("Contra.nes", "c" * 900)
+        self.assertEqual(self._safe(), set())
+        self.assertEqual(len(self.clean.survey([self.inc], [self.lib]).unmatched), 1)
+
+    def test_a_half_installed_archive_is_kept(self):
+        (self.lib / "3ds" / "A.3ds").write_bytes(b"a" * 10)
+        with zipfile.ZipFile(self.inc / "Half.zip", "w") as zf:
+            for name in ("A.3ds", "B.3ds", "C.3ds", "D.3ds"):
+                zf.writestr(name, "x" * 10)
+        self.assertEqual(self._safe(), set())
+
+    def test_a_split_volume_is_left_for_its_first_part(self):
+        (self.inc / "Set.part02.rar").write_bytes(b"x" * 500)
+        report = self.clean.survey([self.inc], [self.lib])
+        self.assertEqual(report.safe, [])
+        self.assertEqual(report.unmatched[0].reason, "part of a split archive")
+
+    def test_a_plain_file_still_needs_its_bytes_to_match(self):
+        (self.lib / "3ds" / "Game.3ds").write_bytes(b"g" * 900)
+        (self.inc / "Game.3ds").write_bytes(b"DIFFERENT" * 100)
+        self.assertEqual(self._safe(), set())

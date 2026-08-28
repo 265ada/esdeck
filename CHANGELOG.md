@@ -6,6 +6,29 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.23.1] - 2026-08-28
+
+### Fixed
+- **The drop folder kept archives the Downloads folder deleted.** In a single
+  run, the same file could be reported both ways: "keep - not in the library"
+  from Incoming, and "remove - everything inside it is in your library" from
+  Downloads. Two opposite answers about one file.
+
+  The drop-folder check compared content only, and an archive is unpacked on
+  the way into the library, so nothing there is ever byte-for-byte identical to
+  it. No archive could ever match, and every one was kept. The contents test
+  added for Downloads is the right question; it simply was not being asked
+  here. Now it is, and a 1.1 GB archive already unpacked into the library is
+  offered rather than quietly kept forever.
+
+  A split archive's later volumes are left for their first part to speak for,
+  and are labelled as such instead of the misleading "not in the library".
+
+  Plain files are unchanged: their own bytes still have to match.
+
+- Each removed file now says why it was safe to remove, rather than leaving
+  the reason to be inferred from where it appeared in the output.
+
 ## [0.23.0] - 2026-08-28
 
 ### Added
