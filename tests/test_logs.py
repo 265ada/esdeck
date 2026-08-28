@@ -160,3 +160,45 @@ class SelfUpdateTests(unittest.TestCase):
     def test_says_nothing_when_not_running_beside_an_exe(self):
         self.exe.unlink()
         self.assertFalse(self.update.refresh_exe(self.dir, log=lambda m: None))
+
+
+class RestartSignalTests(unittest.TestCase):
+    """Saying "please restart" only works on the people who read it.
+
+    Everyone else carries on with an old window driving new code - the exact
+    mismatch that took several releases to notice. So the application restarts
+    itself, and needs to be told when that is warranted rather than guessing
+    from the wording of the output.
+    """
+
+    def setUp(self):
+        from esdeck import cli, update
+        self.cli, self.update = cli, update
+        self._dir = tempfile.TemporaryDirectory()
+        self.dir = Path(self._dir.name)
+        (self.dir / update.EXE_NAME).write_bytes(b"MZ" + b"the old one" * 500)
+        self._get = update._get
+        self._replaced = update.APP_WAS_REPLACED
+
+    def tearDown(self):
+        self.update._get = self._get
+        self.update.APP_WAS_REPLACED = self._replaced
+        self._dir.cleanup()
+
+    def test_the_codes_are_distinct(self):
+        # 10 is "there is one, not installed"; 20 is "installed, and the
+        # application is now the old one". Conflating them would either
+        # restart when there is nothing to restart into, or not restart at all.
+        self.assertNotEqual(self.cli.UPDATE_AVAILABLE, self.cli.APP_REPLACED)
+        self.assertEqual(self.cli.UPDATE_AVAILABLE, 10)
+        self.assertEqual(self.cli.APP_REPLACED, 20)
+
+    def test_replacing_the_app_is_reported(self):
+        self.update._get = lambda url, timeout=0, raw=False: (
+            b"MZ" + b"the new one" * 3000)
+        self.assertTrue(self.update.refresh_exe(self.dir, log=lambda m: None))
+
+    def test_no_replacement_is_not_reported(self):
+        current = (self.dir / self.update.EXE_NAME).read_bytes()
+        self.update._get = lambda url, timeout=0, raw=False: current
+        self.assertFalse(self.update.refresh_exe(self.dir, log=lambda m: None))

@@ -46,6 +46,10 @@ EXE_NAME = "ThuggyEmuAutomation.exe"
 EXE_URL = f"https://github.com/{REPO}/releases/latest/download/{EXE_NAME}"
 CHANGELOG_URL = (f"https://api.github.com/repos/{REPO}/contents/CHANGELOG.md"
                  f"?ref={BRANCH}")
+#: Set when an update replaced the application itself, so the
+#: caller can restart it rather than ask someone to.
+APP_WAS_REPLACED = False
+
 USER_AGENT = f"esdeck/{__version__} (+https://github.com/{REPO})"
 TIMEOUT = 60
 
@@ -244,7 +248,8 @@ def download_and_install(*, bat_dir: Path | None = None, log=print) -> bool:
             copied = _refresh_bats(src, Path(bat_dir), log=log)
             if copied:
                 log(f"  refreshed {copied} launcher file(s)")
-            refresh_exe(Path(bat_dir), log=log)
+            global APP_WAS_REPLACED
+            APP_WAS_REPLACED = refresh_exe(Path(bat_dir), log=log)
         return True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

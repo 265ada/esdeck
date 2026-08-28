@@ -6,6 +6,33 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.24.0] - 2026-08-28
+
+### Changed
+- **The application restarts itself after an update.** It used to install the
+  new version and then ask you to close and reopen it. That only works on the
+  people who read the message; everyone else carries on with an old window
+  driving new code - which is exactly the mismatch that went unnoticed for
+  several releases, and looks like nothing is wrong.
+
+  It now says "Restarting to finish the update...", waits a moment so that can
+  be read, starts the new application and stands down. The confirm-on-close
+  does not fire, because this close is deliberate rather than a stray click.
+
+  It restarts only when the application itself was actually replaced. That is
+  reported by the update with its own exit code rather than left for the window
+  to infer from the wording of the output - including the case where the code
+  was already current and only the application was out of step, where there is
+  nothing to ask about because the work is already done.
+
+  If it cannot relaunch for any reason it says so and falls back to asking, so
+  nobody is left running an application that has already been replaced.
+
+- The previous .exe an update leaves behind is now cleared with a few quiet
+  retries rather than one attempt. It can still be held for a second by the
+  process that handed over, which used to leave it sitting there for the whole
+  session.
+
 ## [0.23.1] - 2026-08-28
 
 ### Fixed

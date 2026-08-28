@@ -61,6 +61,7 @@ namespace ThuggyEmuAutomation
         private DateTime lastSampled;
         private int tickCount;
         private volatile string stage;
+        private bool restarting;      // closing on purpose
         private double readRate, writeRate;
 
         private readonly List<string> pending = new List<string>();
@@ -76,14 +77,27 @@ namespace ThuggyEmuAutomation
         public MainForm()
         {
             appDir = AppDomain.CurrentDomain.BaseDirectory;
-            try
+            // An update renames the running .exe aside and writes the new one;
+            // this is the next launch, so the old one can go. It may still be
+            // held for a second by the process that handed over to us, so this
+            // keeps trying quietly for a few seconds rather than leaving the
+            // file lying about for the whole session.
+            string stale = Path.Combine(appDir, "ThuggyEmuAutomation.exe.old");
+            Thread sweep = new Thread(delegate ()
             {
-                // An update renames the running .exe aside and writes the new
-                // one; this is the next launch, so the old one can go.
-                string stale = Path.Combine(appDir, "ThuggyEmuAutomation.exe.old");
-                if (File.Exists(stale)) File.Delete(stale);
-            }
-            catch { }
+                for (int i = 0; i < 10; i++)
+                {
+                    try
+                    {
+                        if (!File.Exists(stale)) return;
+                        File.Delete(stale);
+                        return;
+                    }
+                    catch { Thread.Sleep(500); }
+                }
+            });
+            sweep.IsBackground = true;
+            sweep.Start();
 
             Text = "ThuggyEmuAutomation";
             ClientSize = new Size(W, H);
@@ -1210,6 +1224,7 @@ namespace ThuggyEmuAutomation
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)
         {
+            if (restarting) return;       // an update is handing over
             if (!busy) return;
             // The whole point of running in-app: a stray console window is one
             // careless click from being closed mid-sort. This asks first.
@@ -1397,6 +1412,46 @@ namespace ThuggyEmuAutomation
                 "logs --export \"" + dlg.SelectedPath.TrimEnd('\\') + "\"" });
         }
 
+        /// <summary>Start the new application and stand down.</summary>
+        private void RestartNow()
+        {
+            Append("");
+            Append("Restarting to finish the update...");
+            activityLabel.Text = "Update installed - restarting...";
+
+            // A moment so that line can be read, then go. The new process is
+            // separate, so it starts cleanly while this one is closing.
+            System.Windows.Forms.Timer go = new System.Windows.Forms.Timer();
+            go.Interval = 1200;
+            go.Tick += delegate (object s2, EventArgs e2)
+            {
+                go.Stop();
+                string exe = Path.Combine(appDir, "ThuggyEmuAutomation.exe");
+                try
+                {
+                    ProcessStartInfo psi = new ProcessStartInfo(exe);
+                    psi.UseShellExecute = true;
+                    psi.WorkingDirectory = appDir;
+                    Process.Start(psi);
+                    restarting = true;            // do not ask on the way out
+                    Close();
+                }
+                catch (Exception ex)
+                {
+                    // Could not relaunch - say so rather than leave someone
+                    // running an application that has already been replaced.
+                    Append("Could not restart automatically: " + ex.Message);
+                    MessageBox.Show(this,
+                        "The update is installed, but this window could not "
+                        + "restart itself.\r\n\r\nClose ThuggyEmuAutomation "
+                        + "and open it again to finish.",
+                        "Restart to finish", MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+            };
+            go.Start();
+        }
+
         private void OnUpdate(object sender, EventArgs e)
         {
             // Two passes on purpose. The first only looks, and prints what
@@ -1406,6 +1461,10 @@ namespace ThuggyEmuAutomation
             Run("Check for updates", new string[] { "update" + where },
                 delegate (int code)
                 {
+                    // 20: the code was already current but the application
+                    // beside it was not, and has just been replaced. Nothing
+                    // to ask about - it is already done, so hand over.
+                    if (code == 20) { RestartNow(); return; }
                     if (code != 10) return;          // 0 = current, 2 = offline
                     if (MessageBox.Show(this,
                             "There is a newer version, and what changed is "
@@ -1417,14 +1476,13 @@ namespace ThuggyEmuAutomation
                     Run("Updating", new string[] { "update --yes" + where },
                         delegate (int done)
                         {
-                            MessageBox.Show(this,
-                                "The update is installed.\r\n\r\n"
-                                + "Close ThuggyEmuAutomation and open it again "
-                                + "to finish. The application itself is part of "
-                                + "the update, and a new one only takes effect "
-                                + "when it next starts.",
-                                "Restart to finish", MessageBoxButtons.OK,
-                                MessageBoxIcon.Information);
+                            // 20 means the application itself was replaced, so
+                            // the one running is now the old one. Telling
+                            // someone to close and reopen only works on the
+                            // people who read it; everyone else carries on with
+                            // an old window driving new code, which is the
+                            // mismatch that took several releases to notice.
+                            if (done == 20) RestartNow();
                         });
                 });
         }

@@ -876,6 +876,14 @@ def make_shortcut(link: Path, target: Path, icon_path: Path | None = None,
 
 
 # ------------------------------------------------------------------- update
+#: An update exists and was not installed - show it and ask.
+UPDATE_AVAILABLE = 10
+#: An update was installed and the application itself was replaced, so the
+#: running one is now out of date and should restart. Worth its own code: the
+#: window would otherwise have to guess from the wording of the output.
+APP_REPLACED = 20
+
+
 def cmd_update(args) -> int:
     """Check GitHub for a newer esdeck, show what changed, and install it."""
     if args.check:
@@ -896,8 +904,8 @@ def cmd_update(args) -> int:
         # The package being current says nothing about the application beside
         # it. A package-only update leaves the two out of step, and that is
         # exactly the state where nothing would otherwise be checked.
-        if args.bat_dir:
-            update_mod.refresh_exe(Path(args.bat_dir), log=_p)
+        if args.bat_dir and update_mod.refresh_exe(Path(args.bat_dir), log=_p):
+            return APP_REPLACED
         return 0
 
     _p("")
@@ -922,16 +930,17 @@ def cmd_update(args) -> int:
     if not args.yes:
         _p("")
         _p("  Re-run with --yes to install it.")
-        # 10 means "there is an update, and it was not installed". The desktop
-        # app runs this first to show the changelog, then asks; a plain 0 here
-        # would be indistinguishable from already being current.
-        return 10
+        # UPDATE_AVAILABLE means "there is one, and it was not installed". The
+        # desktop app runs this first to show the changelog, then asks; a plain
+        # 0 here would be indistinguishable from already being current.
+        return UPDATE_AVAILABLE
 
     _p("")
     bat_dir = Path(args.bat_dir) if args.bat_dir else None
+    update_mod.APP_WAS_REPLACED = False
     if update_mod.download_and_install(bat_dir=bat_dir, log=_p):
         _p(f"  updated to {found.version}.")
-        return 0
+        return APP_REPLACED if update_mod.APP_WAS_REPLACED else 0
     _p("  update failed - the installed version still works.")
     return 1
 
