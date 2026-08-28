@@ -6,6 +6,44 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.21.0] - 2026-08-28
+
+### Fixed
+- **A PC that was never set up looked set up.** The window showed a games
+  folder and offered every action, because when no configuration exists esdeck
+  falls back to autodetecting somewhere plausible. `C:\Users\<you>\ROMs` was a
+  guess presented as a fact. Choosing *Sort games* then failed on a missing
+  drop folder - a true and useless answer, since the missing step was the setup
+  nobody had run.
+
+  Being configured now means a configuration file exists, naming both a games
+  library and a drop folder. Half a config counts as not configured: one that
+  names a library but nowhere to drop games leaves every action failing on a
+  missing folder, which is a worse place to stop than the beginning.
+
+- **Sorting, fixing, undoing and freeing space now offer to set the PC up**
+  rather than running into the wall. If it has not been set up they say so and
+  ask whether to do it now, which is the step that was actually needed.
+
+- **The advice named a drive from someone else's machine.** The failure
+  suggested `esdeck init --source-dir D:\Games\Incoming` on a PC with no D:
+  drive - the path was written into the message rather than worked out. It is
+  now derived from the drive the library is already on, so it can be followed.
+
+### Added
+- **Setting up now proves it worked.** The check that runs at the end covers
+  what was previously assumed:
+
+  - a configuration was actually written, rather than guessed
+  - a drop folder is configured, and exists
+  - RetroArch is installed
+  - every emulator core is present, counted against what ES-DE asks for
+
+  Anything missing is reported as FAIL with the command that fixes it. A setup
+  that installed nothing used to pass this check on autodetected guesses and
+  report no problems, which is how a PC with nothing on it came to look
+  healthy.
+
 ## [0.20.1] - 2026-08-23
 
 ### Changed

@@ -133,14 +133,16 @@ namespace ThuggyEmuAutomation
                       "Files everything in your Incoming folder into the library", ref y,
                       delegate
                       {
-                          Run("Sorting games", new string[] {
+                          if (!ReadyOrOfferSetup("sorting games")) return;
+                          Run("Sort games", new string[] {
                               "tidy --yes", "sync --yes" });
                       });
             AddAction("Fix library",
                       "Removes artwork filed as games and makes the pad player 1", ref y,
                       delegate
                       {
-                          Run("Fixing the library", new string[] {
+                          if (!ReadyOrOfferSetup("fixing the library")) return;
+                          Run("Fix library", new string[] {
                               "cleanup --yes", "controller --yes", "tidy --yes", "doctor" });
                       });
             AddAction("Undo the last sort",
@@ -590,6 +592,30 @@ namespace ThuggyEmuAutomation
             if (dlg.ShowDialog(this) != DialogResult.OK || list.SelectedIndex < 0)
                 return null;
             return usable[list.SelectedIndex].Name;      // "D:\"
+        }
+
+        /// <summary>True when this PC is ready for the job at hand.
+        ///
+        /// Nothing but setup itself works on a machine that has never been set
+        /// up: there is no library to file into and no drop folder to file
+        /// from. Running anyway produces a failure about a folder, which is
+        /// true and useless. Offer the step that fixes it instead.
+        /// </summary>
+        private bool ReadyOrOfferSetup(string what)
+        {
+            string configured = RunAndRead("drives --configured");
+            if (configured != null && configured.Trim() == "yes") return true;
+
+            if (MessageBox.Show(this,
+                    "This PC has not been set up yet, so there is nothing for "
+                    + what + " to work with - no games folder, and nowhere to "
+                    + "drop new games.\r\n\r\n"
+                    + "Would you like to set it up now? It asks which drive to "
+                    + "use, then does the rest.",
+                    "Not set up yet", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) == DialogResult.Yes)
+                OnSetup(this, EventArgs.Empty);
+            return false;
         }
 
         private void OnSetup(object sender, EventArgs e)
@@ -1223,6 +1249,7 @@ namespace ThuggyEmuAutomation
 
         private void OnUndo(object sender, EventArgs e)
         {
+            if (!ReadyOrOfferSetup("undoing a sort")) return;
             if (MessageBox.Show(
                     "Undo the most recent sort?\r\n\r\n" +
                     "This removes only what that sort put in your library. " +
@@ -1234,6 +1261,7 @@ namespace ThuggyEmuAutomation
 
         private void OnFreeSpace(object sender, EventArgs e)
         {
+            if (!ReadyOrOfferSetup("freeing up space")) return;
             if (MessageBox.Show(
                     "Delete the copies in your Incoming folder?\r\n\r\n" +
                     "Only files verified byte-for-byte against your library are " +

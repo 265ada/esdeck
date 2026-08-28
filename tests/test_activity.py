@@ -1,6 +1,7 @@
 """Scraped artwork, stale ES-DE state, and the progress display."""
 
 import io
+import json
 import contextlib
 import tempfile
 import time
@@ -218,7 +219,26 @@ class ReadyToRunTests(unittest.TestCase):
                         normalize=None, suggest=False))
                 self.assertEqual(buf.getvalue().strip(), "no")
 
-                config.CONFIG_PATH.write_text("{}", encoding="utf-8")
+                # Naming a library but no drop folder is still not ready.
+                config.CONFIG_PATH.write_text(
+                    json.dumps({"rom_dir": str(Path(td) / "ROMs")}),
+                    encoding="utf-8")
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    cli.cmd_drives(types.SimpleNamespace(
+                        configured=True, rom_dir=False, current=False,
+                        normalize=None, suggest=False))
+                self.assertEqual(buf.getvalue().strip(), "no")
+
+                # A config naming both a library and a drop folder. Half a
+                # config is not a configured PC: one that names a library but
+                # no drop folder leaves every other action failing on a
+                # missing folder, which is a worse place to stop than the
+                # beginning.
+                config.CONFIG_PATH.write_text(
+                    json.dumps({"rom_dir": str(Path(td) / "ROMs"),
+                                "source_dirs": [str(Path(td) / "Incoming")]}),
+                    encoding="utf-8")
                 buf = io.StringIO()
                 with contextlib.redirect_stdout(buf):
                     cli.cmd_drives(types.SimpleNamespace(

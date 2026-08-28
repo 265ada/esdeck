@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -53,6 +54,24 @@ DEFAULT_PLAN = "esdeck-plan.json"
 
 def _p(*a, **kw):
     print(*a, **kw)
+
+
+def _suggest_incoming(cfg) -> str:
+    """A drop folder on the drive this library already uses.
+
+    Naming a drive that does not exist on the machine reading the message is
+    worse than saying nothing: it looks like an instruction and cannot be
+    followed.
+    """
+    root = ""
+    try:
+        if cfg.rom_dir:
+            root = os.path.splitdrive(str(cfg.rom_dir))[0]
+    except (AttributeError, TypeError):
+        root = ""
+    if not root:
+        root = os.path.splitdrive(str(Path.home()))[0] or "C:"
+    return str(Path(root + "\\") / "Games" / "Incoming")
 
 
 def _utf8_console() -> None:
@@ -302,8 +321,11 @@ def cmd_sync(args) -> int:
 
     sources = _sources(args, cfg)
     if not sources:
-        _p("No drop folder configured. Run:")
-        _p(r"  esdeck init --source-dir D:\Games\Incoming")
+        _p("No drop folder configured yet - this PC has not been set up.")
+        _p("")
+        _p("In ThuggyEmuAutomation, choose \"Set up this PC\". From a command")
+        _p("line, the equivalent is:")
+        _p(f"  esdeck init --source-dir {_suggest_incoming(cfg)}")
         return 2
 
     header = "esdeck sync" if args.yes else "esdeck sync (DRY RUN)"
@@ -587,7 +609,8 @@ def cmd_clean(args) -> int:
     if args.source:
         sources = [Path(args.source)]
     if not sources:
-        _p("No drop folder configured. esdeck init --source-dir <path>")
+        _p("No drop folder configured yet - this PC has not been set up.")
+        _p(f"  esdeck init --source-dir {_suggest_incoming(cfg)}")
         return 2
 
     roots = [cfg.rom_dir, cfg.install_dir]
@@ -692,12 +715,20 @@ def cmd_drives(args) -> int:
         _p(str(Path(cfg.rom_dir).parent) if cfg.rom_dir else "")
         return 0
     if args.configured:
-        # Whether anyone has actually chosen, as opposed to what we would guess
+        # Whether this PC is actually ready, as opposed to what we would guess
         # in the absence of a choice. config.load() falls back to autodetection,
         # so a guessed path is never absence of configuration - and asking the
         # question that way would mean never asking a fresh PC where its games
         # should go.
-        _p("yes" if config.CONFIG_PATH.is_file() else "no")
+        #
+        # A half-written config counts as not configured too. One that names a
+        # library but no drop folder leaves every other action failing on a
+        # missing folder, which is a worse place to stop than the beginning.
+        cfg = config.load()
+        ready = (config.CONFIG_PATH.is_file()
+                 and bool(cfg.rom_dir)
+                 and bool(cfg.source_dirs))
+        _p("yes" if ready else "no")
         return 0
     if args.rom_dir:
         # --current gives the drive, which is what the setup questions are
@@ -1274,8 +1305,33 @@ def cmd_doctor(args) -> int:
                 _p(f"       fix: {fix}")
 
     _p(f"Config: {config.CONFIG_PATH}{'' if config.CONFIG_PATH.is_file() else ' (not written yet)'}")
+    # Without this, a PC that was never set up passes most of the checks
+    # below on autodetected guesses and looks healthy.
+    check(config.CONFIG_PATH.is_file(),
+          "this PC has been set up",
+          'choose "Set up this PC" in ThuggyEmuAutomation')
     check(bool(cfg.rom_dir) and Path(cfg.rom_dir).is_dir(),
           f"ROM directory {cfg.rom_dir}", "esdeck init --rom-dir <path>")
+    drops = [Path(d) for d in (cfg.source_dirs or [])]
+    check(bool(drops),
+          "drop folder configured"
+          + (f" ({drops[0]})" if drops else " - none, so nothing can be sorted"),
+          f"esdeck init --source-dir {_suggest_incoming(cfg)}")
+    for d in drops:
+        check(d.is_dir(), f"drop folder exists {d}",
+              f'create it, or re-run "Set up this PC"')
+    ra_base, ra_cores = cores_mod.retroarch_dirs()
+    check(ra_base is not None,
+          f"RetroArch installed{f' ({ra_base})' if ra_base else ''}",
+          "esdeck bootstrap --packages retroarch --yes")
+    needed = set(cores_mod.all_cores())
+    have = cores_mod.installed_cores(cores_mod.retroarch_dirs()[1]) \
+        if cores_mod.retroarch_dirs()[1] else set()
+    missing_cores = sorted(c for c in needed if c and c not in have)
+    check(not missing_cores,
+          f"emulator cores installed ({len(needed) - len(missing_cores)}"
+          f"/{len(needed)})",
+          "esdeck cores --all --yes  (or re-run \"Set up this PC\")")
     es_binary = bootstrap.find_es_de()
     check(es_binary is not None,
           f"ES-DE installed{f' ({es_binary})' if es_binary else ''}",
