@@ -40,6 +40,10 @@ VERSION_URL = (f"https://api.github.com/repos/{REPO}/contents/esdeck/__init__.py
 VERSION_URL_FALLBACK = (f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
                         f"/esdeck/__init__.py")
 ZIP_URL = f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}"
+#: The published application. Always the newest release, so it matches
+#: the code being installed alongside it.
+EXE_NAME = "ThuggyEmuAutomation.exe"
+EXE_URL = f"https://github.com/{REPO}/releases/latest/download/{EXE_NAME}"
 CHANGELOG_URL = (f"https://api.github.com/repos/{REPO}/contents/CHANGELOG.md"
                  f"?ref={BRANCH}")
 USER_AGENT = f"esdeck/{__version__} (+https://github.com/{REPO})"
@@ -240,6 +244,7 @@ def download_and_install(*, bat_dir: Path | None = None, log=print) -> bool:
             copied = _refresh_bats(src, Path(bat_dir), log=log)
             if copied:
                 log(f"  refreshed {copied} launcher file(s)")
+            refresh_exe(Path(bat_dir), log=log)
         return True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -258,3 +263,69 @@ def _refresh_bats(src: Path, dest: Path, *, log=print) -> int:
         except OSError as exc:
             log(f"  could not update {bat.name}: {exc}")
     return copied
+
+
+def refresh_exe(dest_dir: Path, *, log=print) -> bool:
+    """Replace ThuggyEmuAutomation.exe with the one from the latest release.
+
+    Updating the package but not the application leaves the window's own
+    behaviour behind the code it drives - the buttons, the questions it asks,
+    the steps it knows to run. A step the application has never heard of is
+    not skipped with a warning; it simply does not exist, and everything else
+    reports success.
+
+    A running executable cannot be written to, but it can be renamed. The old
+    one is moved aside and cleaned up on the next launch.
+    """
+    target = Path(dest_dir) / EXE_NAME
+    if not target.exists():
+        return False                      # not running from beside the .exe
+
+    try:
+        payload = _get(EXE_URL, timeout=180)
+    except (urllib.error.URLError, OSError) as exc:
+        log(f"  could not fetch the application itself: {exc}")
+        return False
+
+    if len(payload) < 20000 or payload[:2] != b"MZ":
+        log("  the downloaded application did not look like a program - kept the old one")
+        return False
+
+    try:
+        if target.read_bytes() == payload:
+            return False                  # already current, nothing to say
+    except OSError:
+        pass
+
+    old = target.with_suffix(".exe.old")
+    try:
+        if old.exists():
+            old.unlink()
+    except OSError:
+        pass
+    try:
+        target.rename(old)                # allowed even while running
+        target.write_bytes(payload)
+    except OSError as exc:
+        log(f"  could not replace the application: {exc}")
+        try:
+            if not target.exists() and old.exists():
+                old.rename(target)        # put it back rather than leave none
+        except OSError:
+            pass
+        return False
+
+    log("")
+    log("  The application itself was updated as well.")
+    log("  Close ThuggyEmuAutomation and open it again to finish.")
+    return True
+
+
+def clean_old_exe(dest_dir: Path) -> None:
+    """Remove the previous .exe left behind by an update."""
+    try:
+        old = Path(dest_dir) / (EXE_NAME + ".old")
+        if old.exists():
+            old.unlink()
+    except OSError:
+        pass

@@ -93,3 +93,70 @@ class RecordingTests(unittest.TestCase):
         restore, path = logs.start("doctor")
         self.assertIsNone(path)
         restore()
+
+
+class SelfUpdateTests(unittest.TestCase):
+    """The application has to update itself, not only the code it runs.
+
+    Updating replaced the package and left the .exe alone, so the window's own
+    behaviour could sit several releases behind the esdeck it was driving. A
+    step the application has never heard of is not skipped with a warning - it
+    does not exist, and every other step reports success.
+    """
+
+    def setUp(self):
+        from esdeck import update
+        self.update = update
+        self._dir = tempfile.TemporaryDirectory()
+        self.dir = Path(self._dir.name)
+        self.exe = self.dir / update.EXE_NAME
+        self.exe.write_bytes(b"MZ" + b"the old application" * 200)
+
+    def tearDown(self):
+        self._dir.cleanup()
+
+    def _serve(self, payload):
+        self.update._get = lambda url, timeout=0, raw=False: payload
+
+    def test_replaces_the_application_and_keeps_the_old_one(self):
+        real = self.update._get
+        try:
+            self._serve(b"MZ" + b"the new application" * 3000)
+            self.assertTrue(self.update.refresh_exe(self.dir, log=lambda m: None))
+            self.assertIn(b"the new application", self.exe.read_bytes())
+            self.assertTrue((self.dir / (self.update.EXE_NAME + ".old")).exists())
+        finally:
+            self.update._get = real
+
+    def test_refuses_anything_that_is_not_a_program(self):
+        # A proxy's error page, or a 404 body, must never be written over the
+        # application - that would leave the machine with nothing to run.
+        real = self.update._get
+        try:
+            self._serve(b"<html>404: Not Found</html>" * 2000)
+            self.assertFalse(self.update.refresh_exe(self.dir, log=lambda m: None))
+            self.assertIn(b"the old application", self.exe.read_bytes())
+        finally:
+            self.update._get = real
+
+    def test_refuses_a_suspiciously_small_download(self):
+        real = self.update._get
+        try:
+            self._serve(b"MZ" + b"x" * 50)
+            self.assertFalse(self.update.refresh_exe(self.dir, log=lambda m: None))
+            self.assertIn(b"the old application", self.exe.read_bytes())
+        finally:
+            self.update._get = real
+
+    def test_does_nothing_when_already_current(self):
+        real = self.update._get
+        try:
+            self._serve(self.exe.read_bytes())
+            self.assertFalse(self.update.refresh_exe(self.dir, log=lambda m: None))
+            self.assertFalse((self.dir / (self.update.EXE_NAME + ".old")).exists())
+        finally:
+            self.update._get = real
+
+    def test_says_nothing_when_not_running_beside_an_exe(self):
+        self.exe.unlink()
+        self.assertFalse(self.update.refresh_exe(self.dir, log=lambda m: None))

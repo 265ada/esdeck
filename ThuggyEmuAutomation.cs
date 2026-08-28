@@ -76,6 +76,14 @@ namespace ThuggyEmuAutomation
         public MainForm()
         {
             appDir = AppDomain.CurrentDomain.BaseDirectory;
+            try
+            {
+                // An update renames the running .exe aside and writes the new
+                // one; this is the next launch, so the old one can go.
+                string stale = Path.Combine(appDir, "ThuggyEmuAutomation.exe.old");
+                if (File.Exists(stale)) File.Delete(stale);
+            }
+            catch { }
 
             Text = "ThuggyEmuAutomation";
             ClientSize = new Size(W, H);
@@ -1226,12 +1234,39 @@ namespace ThuggyEmuAutomation
 
         private void OnShown(object sender, EventArgs e) { RefreshStatus(); }
 
+        //: "esdeck 0.21.0  (installed at ...)" -> "0.21.0"
+        private static string EsdeckVersion(string line)
+        {
+            Match m = Regex.Match(line, @"([0-9]+\.[0-9]+\.[0-9]+)");
+            return m.Success ? m.Groups[1].Value : null;
+        }
+
         private void RefreshStatus()
         {
             string version = RunAndRead("--version");
-            versionLabel.Text = version == null
-                ? "esdeck is not installed yet - start with \"Set up this PC\""
-                : version;
+            if (version == null)
+            {
+                versionLabel.Text = "esdeck is not installed yet - "
+                    + "start with \"Set up this PC\"";
+            }
+            else
+            {
+                versionLabel.Text = "app " + Build.Version + "    " + version;
+                // A newer esdeck driven by an older application is the quiet
+                // failure worth shouting about: steps the application does not
+                // know about are not skipped with a warning, they never run.
+                string theirs = EsdeckVersion(version);
+                if (theirs != null && theirs != Build.Version)
+                {
+                    versionLabel.ForeColor = Color.FromArgb(255, 206, 120);
+                    versionLabel.Text = "app " + Build.Version + " but esdeck "
+                        + theirs + " - choose Check for updates, then restart";
+                }
+                else
+                {
+                    versionLabel.ForeColor = Color.FromArgb(186, 198, 216);
+                }
+            }
             string folder = RunAndRead("drives --rom-dir");
             statusLabel.Text = string.IsNullOrEmpty(folder)
                 ? "No games folder configured yet."
@@ -1345,8 +1380,34 @@ namespace ThuggyEmuAutomation
 
         private void OnUpdate(object sender, EventArgs e)
         {
-            Run("Checking for updates", new string[] {
-                "update --yes --bat-dir \"" + appDir.TrimEnd('\\') + "\"" });
+            // Two passes on purpose. The first only looks, and prints what
+            // changed in every version you are behind; nothing is installed
+            // until that has been read and agreed to.
+            string where = " --bat-dir \"" + appDir.TrimEnd('\\') + "\"";
+            Run("Check for updates", new string[] { "update" + where },
+                delegate (int code)
+                {
+                    if (code != 10) return;          // 0 = current, 2 = offline
+                    if (MessageBox.Show(this,
+                            "There is a newer version, and what changed is "
+                            + "listed in the window behind this.\r\n\r\n"
+                            + "Would you like to update now?",
+                            "Update available", MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Question) != DialogResult.Yes)
+                        return;
+                    Run("Updating", new string[] { "update --yes" + where },
+                        delegate (int done)
+                        {
+                            MessageBox.Show(this,
+                                "The update is installed.\r\n\r\n"
+                                + "Close ThuggyEmuAutomation and open it again "
+                                + "to finish. The application itself is part of "
+                                + "the update, and a new one only takes effect "
+                                + "when it next starts.",
+                                "Restart to finish", MessageBoxButtons.OK,
+                                MessageBoxIcon.Information);
+                        });
+                });
         }
 
         [STAThread]

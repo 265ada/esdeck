@@ -36,13 +36,23 @@ rem Embed the wallpaper so the .exe needs nothing beside it.
 set "RESOPT="
 if exist "assets\background.jpg" set "RESOPT=/resource:assets\background.jpg,background.jpg"
 
+rem Stamp the version in from the one place it is kept, so the application
+rem and the code it drives can never disagree without saying so. An app
+rem older than its esdeck does not warn about steps it has never heard of -
+rem they simply do not run, and everything else reports success.
+set "VER="
+for /f tokens^=2^ delims^=^" %%v in ('findstr /b /c:"__version__" "esdeck\__init__.py"') do set "VER=%%v"
+if not defined VER set "VER=unknown"
+> "Version.cs" echo namespace ThuggyEmuAutomation { internal static class Build { public const string Version = "%VER%"; } }
+echo  Version %VER%
+
 echo  Building ThuggyEmuAutomation.exe ...
 "%CSC%" /nologo /target:winexe /optimize+ ^
     /out:ThuggyEmuAutomation.exe %ICONOPT% %ICONRES% %RESOPT% ^
     /reference:System.dll ^
     /reference:System.Drawing.dll ^
     /reference:System.Windows.Forms.dll ^
-    ThuggyEmuAutomation.cs
+    ThuggyEmuAutomation.cs Version.cs
 if errorlevel 1 (
     echo  [X] Build failed.
     echo.

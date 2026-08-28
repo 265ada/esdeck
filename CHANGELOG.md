@@ -6,6 +6,45 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.22.0] - 2026-08-28
+
+### Fixed
+- **The application never updated itself.** Updating replaced the Python
+  package and the launcher files and left the .exe alone - so the window's own
+  behaviour could sit several releases behind the esdeck it was driving. That
+  is how a PC came to run esdeck 0.21.0 through an application older than 0.19,
+  the release where setting up started asking which drive to use and writing a
+  configuration. Every step that application knew about ran and reported
+  success; the two it had never heard of did not exist, so nothing was skipped
+  and nothing complained.
+
+  Updating now replaces the application too, fetching it from the latest
+  release. A running program cannot be written to, but it can be renamed, so
+  the old one is moved aside and cleaned up on the next launch. The download is
+  checked before it is trusted - anything that is not a program, or is
+  implausibly small, is refused rather than written over a working
+  application.
+
+- **The window now shows its own version alongside esdeck's**, and says so
+  plainly when they differ:
+
+      app 0.18.0 but esdeck 0.21.0 - choose Check for updates, then restart
+
+  Reporting only the esdeck version is what let this hide: the mismatch that
+  explained everything was the one thing not on screen.
+
+- **Updating asks again before installing.** The two-pass flow - show what
+  changed in every version you are behind, then ask - was described in the
+  0.14.0 notes but was not in the application. Installing immediately still
+  worked and looked fine, which is why its absence went unnoticed. The exit
+  code it needs has been there all along; the application just had to use it.
+
+  After an update it now says to close and reopen, since the new application
+  only takes effect when it next starts.
+
+- The version is stamped into the application at build time from the single
+  place it is kept, so the two cannot drift apart again without saying so.
+
 ## [0.21.0] - 2026-08-28
 
 ### Fixed
