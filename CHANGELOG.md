@@ -6,6 +6,45 @@ The recurring theme: wherever esdeck had an opinion baked into a table, reading
 ES-DE's or RetroArch's own configuration instead turned out to be both more
 correct and more complete.
 
+## [0.23.0] - 2026-08-28
+
+### Added
+- **Freeing up space now offers the browser's Downloads folder too.** A game
+  usually arrives twice: once where the browser left it, and once in the
+  Incoming folder. Clearing only Incoming therefore reclaims half the space,
+  and a 40 GB archive can sit in Downloads for months with nothing pointing at
+  it.
+
+  It is asked as a separate question. Incoming exists for esdeck to work
+  through; Downloads is the person's own folder, full of things that have
+  nothing to do with games, and agreeing to one is not agreeing to the other.
+
+  Only two kinds of file are ever offered:
+
+  - one byte-for-byte identical to a file in the library, including the
+    "Mario (1).sfc" a browser writes when the same thing is downloaded twice
+  - an archive whose contents are all in the library. An archive cannot be
+    compared byte for byte with anything, because it was unpacked and nothing
+    in the library looks like it - so what is inside it answers the question
+    instead. Artwork inside does not count against it, since esdeck never files
+    artwork and an archive full of box art would otherwise never look
+    installed.
+
+  Everything else is left where it is, and counted so the report says how much
+  was passed over rather than leaving it unsaid. A part-installed archive is
+  left alone: most of its contents being present is not proof, and Downloads is
+  the wrong folder to be brave in.
+
+  From a command line this is `esdeck clean --downloads`.
+
+  The Downloads folder is asked of Windows rather than assumed - it can be
+  moved, and OneDrive moves it without asking, so a guessed path would report
+  nothing and look like a clean machine.
+
+### Fixed
+- Per-file sizes while freeing space read in a sensible unit. Anything under
+  half a megabyte showed as `0 MB`.
+
 ## [0.22.1] - 2026-08-28
 
 ### Fixed

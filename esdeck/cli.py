@@ -36,6 +36,7 @@ from . import bios as bios_mod
 from . import bootstrap, clean as clean_mod, cleanup as cleanup_mod, config
 from . import controller as controller_mod, cores as cores_mod
 from . import dedupe as dedupe_mod
+from . import downloads as downloads_mod
 from . import drives as drives_mod
 from . import emulators as emu_mod
 from . import history as history_mod
@@ -646,6 +647,41 @@ def cmd_clean(args) -> int:
 
     if args.yes:
         pruned = clean_mod.prune_empty_dirs(sources, dry_run=False, log=_p)
+
+    # The other copy. A game usually arrives twice - once where the browser
+    # left it, once in the drop folder - so clearing only the drop folder
+    # reclaims half the space and leaves a 40 GB archive sitting in Downloads.
+    if args.downloads:
+        dl_dir = downloads_mod.folder()
+        _p("")
+        if dl_dir is None:
+            _p("Downloads folder not found - skipping it.")
+        else:
+            _p(f"Checking {dl_dir} for copies already in your library ...")
+            dl = downloads_mod.survey(dl_dir, roots, quick=args.quick)
+            if not dl.found:
+                _p(f"  nothing there is in your library "
+                   f"({dl.skipped_unmatched} other file(s) left alone)")
+            else:
+                _p("")
+                _p(f"{len(dl.found)} download(s) already in your library, "
+                   f"{progress_mod.human_bytes(dl.reclaimable)}:")
+                for c in dl.found:
+                    _p(f"  {'remove' if args.yes else 'would remove'}  "
+                       f"{c.describe()}")
+                if args.yes:
+                    for c in dl.found:
+                        try:
+                            c.path.unlink()
+                            removed += 1
+                            freed += c.size
+                        except OSError as exc:
+                            _p(f"  ERROR  {c.path.name}: {exc}")
+                else:
+                    removed += len(dl.found)
+                    freed += dl.reclaimable
+                _p(f"  {dl.skipped_unmatched} other file(s) in Downloads were "
+                   f"left alone")
 
     # The bottom line, always printed: how much was actually deleted and how
     # much room that gave back. Reading a wall of per-file lines to work that
@@ -1435,6 +1471,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yes", action="store_true", help="delete (default is a dry run)")
     p.add_argument("--quick", action="store_true",
                    help="verify by size only instead of hashing the contents")
+    p.add_argument("--downloads", action="store_true",
+                   help="also offer the copies in your browser's "
+                        "Downloads folder")
     p.set_defaults(func=cmd_clean)
 
     p = sub.add_parser("logs", help="show or export the record of past runs")

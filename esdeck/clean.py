@@ -20,6 +20,11 @@ from pathlib import Path
 CHUNK = 1 << 20
 
 
+def _human(n: int) -> str:
+    from .progress import human_bytes
+    return human_bytes(n)
+
+
 @dataclass
 class Candidate:
     source: Path
@@ -136,7 +141,7 @@ def purge(report: Report, *, dry_run: bool = True, log=print) -> tuple[int, int]
     """Delete the verified duplicates. Returns (files removed, bytes freed)."""
     removed = freed = 0
     for c in report.safe:
-        log(f"  remove {c.source.name}  ({c.size / 1_048_576:.0f} MB)")
+        log(f"  remove {c.source.name}  ({_human(c.size)})")
         if dry_run:
             removed += 1
             freed += c.size

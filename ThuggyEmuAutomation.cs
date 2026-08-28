@@ -160,7 +160,8 @@ namespace ThuggyEmuAutomation
                       "Reports anything needing attention, including missing BIOS", ref y,
                       delegate { Run("Checking", new string[] { "doctor", "bios" }); });
             AddAction("Free up space",
-                      "Deletes Incoming copies verified as already in the library", ref y,
+                      "Deletes copies verified as already in your library, from "
+                      + "Incoming and, if you like, Downloads", ref y,
                       OnFreeSpace);
 
             int by = y + 8;
@@ -1305,7 +1306,25 @@ namespace ThuggyEmuAutomation
                     "Free up space", MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2)
                 != DialogResult.Yes) return;
-            Run("Freeing up space", new string[] { "clean --yes" });
+            // Downloads is asked about separately. Incoming exists for esdeck
+            // to work through; Downloads is the person's own folder, and
+            // agreeing to one is not agreeing to the other.
+            bool alsoDownloads = MessageBox.Show(
+                    "Also check your browser's Downloads folder?\r\n\r\n"
+                    + "A game usually arrives twice - once where the browser "
+                    + "left it, and once in your Incoming folder - so the "
+                    + "download is often still sitting there taking up the same "
+                    + "space again.\r\n\r\n"
+                    + "Only two kinds of file are offered:\r\n"
+                    + "   - a file byte-for-byte identical to one in your library\r\n"
+                    + "   - an archive whose contents are all in your library\r\n\r\n"
+                    + "Everything else in Downloads is left alone.",
+                    "Check Downloads as well?", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question, MessageBoxDefaultButton.Button2)
+                == DialogResult.Yes;
+
+            Run("Free up space", new string[] {
+                alsoDownloads ? "clean --yes --downloads" : "clean --yes" });
         }
 
         private void OnIcon(object sender, EventArgs e)
